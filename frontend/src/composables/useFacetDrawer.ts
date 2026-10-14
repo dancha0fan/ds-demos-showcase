@@ -60,12 +60,15 @@ export function useFacetDrawer(opts: FacetDrawerOptions = {}) {
   const backdropActive = computed(() => showPanel.value && panelMode.value !== 'pinned')
 
   function openFacet() {
+    captureTrigger()
     facetOpen.value = true
     onOpen?.(panelMode.value)
     void nextTick(() => panelEl.value?.focus()) // 轻量可达性：开抽屉即把焦点交给面板
   }
   function closeFacet() {
+    if (!facetOpen.value) return
     facetOpen.value = false
+    void nextTick(restoreTrigger) // 抽屉是 v-if 挂载，等它真正移除后再归还焦点
   }
   function toggleFacet() {
     facetOpen.value ? closeFacet() : openFacet()
@@ -84,6 +87,27 @@ export function useFacetDrawer(opts: FacetDrawerOptions = {}) {
   /** Esc 关浮层/抽屉（钉住态是常驻侧栏，不响应 Esc） */
   function onDocKey(e: KeyboardEvent) {
     if (e.key === 'Escape' && facetOpen.value) closeFacet()
+  }
+
+  // 焦点归还：开抽屉时把焦点交给面板，关抽屉（含 Esc / 遮罩点击）后还给原触发元素，
+  // 否则焦点落回 <body>，键盘用户 Tab 要从头开始。钉住/取消钉住会让触发按钮切换，
+  // 归还时用 isConnected 兜底——失效则回退聚焦那个「筛选 (N)」按钮（若仍在页面上）。
+  let returnFocusTo: HTMLElement | null = null
+  function captureTrigger() {
+    if (typeof document === 'undefined') return
+    const active = document.activeElement
+    returnFocusTo = active instanceof HTMLElement ? active : null
+  }
+  function restoreTrigger() {
+    if (typeof document === 'undefined') return
+    const el = returnFocusTo
+    returnFocusTo = null
+    if (!el) return
+    if (el.isConnected) {
+      el.focus()
+      return
+    }
+    ;(document.querySelector<HTMLElement>('.facet-btn') ?? (!isMobile.value ? panelEl.value : null))?.focus()
   }
 
   // 只在组件上下文注册监听（测试/非组件环境调用时不打 Vue 警告）

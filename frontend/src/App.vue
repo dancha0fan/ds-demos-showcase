@@ -19,6 +19,14 @@ import { openSearch } from './composables/useSearch'
 const auth = useAuthStore()
 const route = useRoute()
 const username = computed(() => auth.user?.username ?? '')
+// C 项：≤720 移动判定（与站点断点同值；覆盖层/抽屉同款）。用于仅 <720 渲染移动搜索钮，
+// 避免 topnav-desktop 被全局隐藏时出现的双入口问题。
+const MOB_MQ = '(max-width: 720px)'
+const isMobile = ref(typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(MOB_MQ).matches : false)
+function onMobMq(e: MediaQueryListEvent) {
+  isMobile.value = e.matches
+}
+let mobMql: MediaQueryList | null = null
 const keepAlivePages = ['HomeView', 'DemosView', 'TagListView', 'LeaderboardView', 'ForumListView', 'ModelsView', 'TasksView', 'ExploreView']
 // 保留页按 name 做 key（同页返回复用实例）；其他页按 fullPath（参数变化强制重挂载）
 // key 只用 path，不用 fullPath：
@@ -69,9 +77,12 @@ watch(
 )
 onMounted(() => {
   document.addEventListener('click', onDocClick)
+  mobMql = window.matchMedia(MOB_MQ)
+  mobMql.addEventListener('change', onMobMq)
 })
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocClick)
+  mobMql?.removeEventListener('change', onMobMq)
 })
 // 管理员：进站即拉一次队列计数（badge 合计的数据源；去重逻辑在 composable 内；
 // 用 watch 而非 onMounted——首屏时 fetchMe 可能尚未返回，身份就绪后再拉）
@@ -152,6 +163,23 @@ onMounted(() => {
            桌面 .topnav 基础 flex + scoped gap10 与原逐字节等价。 -->
       <div class="topnav topnav-tools">
         <!-- T7 v3：工具簇 ⌕ 撤销（迁 nav 位，别留双入口）——右簇瘦身=主题/语言/铃铛+用户菜单+CTA -->
+        <!-- C 项：移动全局搜索入口。<720 时 nav.topnav-desktop 被全局隐藏（styles/layouts/topbar.css），
+             Nav 里的 ⌕ 随之消失，触屏又无硬件键盘的 ⌘K / / —— 此前移动端全局搜索实际不可达。
+             这里在常显的 .topnav-tools 里补同一个⌕，只在 <720 渲染（断点型 isMobile 判断），
+             ≥721 由上面 nav.topnav-desktop 里的同款承接——同一时刻只存在一个入口。 -->
+        <button
+          v-if="isMobile"
+          class="nav-link topnav-search"
+          type="button"
+          :aria-label="t('search.title', '全局搜索')"
+          :title="t('search.openTip', '全局搜索（快捷键 /）')"
+          @click="openSearch"
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+            <circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.6" />
+            <path d="M15.5 15.5 21 21" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" />
+          </svg>
+        </button>
         <button class="btn btn-sm btn-outline" type="button" :title="themeTitle" @click="cycleTheme">
           {{ themeNow === 'ink' ? '纸' : '墨' }}
         </button>

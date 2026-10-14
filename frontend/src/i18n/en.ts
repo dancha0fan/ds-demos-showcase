@@ -184,6 +184,7 @@ export const en = {
     searchTech: 'Search tag values…',
     searchNoHit: 'No hit',
     noFacets: 'No facets available',
+    facetLoadFailed: 'Failed to load facets',
     modelsExpandN: 'Models · expand +{n}',
     expandN: 'Expand +{n}',
     collapse: 'Collapse',

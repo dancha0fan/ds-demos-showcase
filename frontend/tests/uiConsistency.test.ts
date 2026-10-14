@@ -94,6 +94,22 @@ describe('P2 空态/错误态收敛', () => {
       expect(hasRetry, `${f} 的错误态没有重试入口`).toBe(true)
     }
   })
+
+  it('作品库（DemosView）加载失败与"没有匹配的作品"分开，且错误态有重试出口', () => {
+    // 背景：原先模板是 `v-if="error" notice` 与 `v-if="loading && !demos.length" / v-else-if="!demos.length"`
+    // 两条独立分支 —— 加载失败且列表为空时会**同时**渲染错误横幅与"空态三出口"，
+    // 误导用户去放宽筛选而非重试。修复后：列表为空且失败走 <EmptyBox kind="error">，
+    // 列表非空才在顶部给带重试的 notice。这条把它固定下来。
+    const src = readNoComments('src/views/DemosView.vue')
+    // ① 空列表 + 失败走 EmptyBox error 态并有重试（resume 依据：紧跟 loading 分支之后）
+    expect(src, 'DemosView 缺空列表失败的 EmptyBox error 分支').toMatch(/<EmptyBox[^>]*kind="error"/)
+    expect(src, 'DemosView 的 EmptyBox error 没有绑定重试').toMatch(/@retry="[^"]*"/)
+    // ② 顶部 error banner 只能在「列表已有数据」时出现（加载更多失败），否则报错会被空态遮没
+    expect(src, 'DemosView 顶部错误横幅没有限定"列表非空"').toMatch(/v-if="error && demos\.length"/)
+    // ③ 分面（tagKeys）加载失败不得静默：有独立标记且页内出现失败文案
+    expect(src, 'DemosView 的分面加载失败标记缺失').toContain('facetLoadError')
+    expect(readNoComments('src/views/DemosView.vue'), 'DemosView 的分面失败没有可重试出口').toMatch(/facetLoadFailed|重试/)
+  })
 })
 
 describe('P2 页头收敛', () => {
