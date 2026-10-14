@@ -55,18 +55,25 @@ export function useDemoFilters(opts: DemoFiltersOptions) {
     const modelQ = typeof route.query.model === 'string' ? route.query.model : ''
     const sortQ =
       route.query.sort === 'popular' || route.query.sort === 'random' ? (route.query.sort as DemoSort) : sort.value
-    const nextTags = tagQ ? tagQ.split(',').filter(Boolean) : selectedTags.value
+    // P-05：URL 是唯一真源 —— 参数被移除时**必须清空**对应状态。
+    // 原实现写成 `tagQ ? tagQ.split(',') : selectedTags.value` 加 `if (tagQ) selectedTags.value = nextTags`：
+    // 从 `/demos?tag=…` 导航到无参数的 `/demos` 时，URL 干净了而筛选芯片仍亮、列表仍是筛选结果，
+    // 且状态与 URL 脱钩（之后任意 apply() 又会把旧筛选写回 URL）。
+    // sort 仍是例外：缺省 newest 按约定不写进 URL（见 syncQuery），故无值时回落当前排序而非清空。
+    const nextTags = tagQ ? tagQ.split(',').filter(Boolean) : []
     const changed =
       qq !== submittedQ.value ||
       modelQ !== modelFilter.value ||
       sortQ !== sort.value ||
       nextTags.join(',') !== selectedTags.value.join(',')
     if (!changed) return false
-    if (qq) {
-      q.value = qq
+    if (qq !== submittedQ.value) {
       submittedQ.value = qq
+      // 草稿随已提交值同步（外部带来搜索词就填上，外部移除搜索就一并清空）。
+      // 只在「已提交值真的变了」时动草稿：URL 未涉及 q 的导航不抹掉用户正在输入、尚未提交的内容。
+      q.value = qq
     }
-    if (tagQ) selectedTags.value = nextTags
+    selectedTags.value = nextTags
     modelFilter.value = modelQ
     sort.value = sortQ
     return true

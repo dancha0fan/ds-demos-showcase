@@ -13,7 +13,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Demo, DemoModel, DemoTask, Model, Task
+from ..deps import optional_user
+from ..models import Demo, DemoModel, DemoTask, Model, Task, User
 from ..services import model_service, task_service
 
 router = APIRouter(prefix="/peek", tags=["peek"])
@@ -45,6 +46,12 @@ def _demo_cells(db: Session, demo_ids: list[int]) -> list[dict]:
 
 
 def _peek_model(db: Session, ident: str) -> dict:
+    # 模型状态**不做**门禁（保持基线的原有语义）。
+    # 依据：规范与测试都只约束「列表」口径 —— model_service.list_models 的 docstring 与
+    # models.py:17 的参数描述写的是「缺省展示 active+unverified」；实体详情 GET /models/{slug}
+    # 对 candidate/deprecated 一律 200，且无任何测试或规范要求隐藏。
+    # 「列表过滤」是展示策略，不能据此推导「实体详情应保密」——收紧会构成产品行为变更，
+    # 属待产品决策项（见 Bug 扫描报告 P-07 与 P-03 的修正结论）。
     model = model_service.get_model_or_404(db, ident)
     stats = (
         db.query(
@@ -83,8 +90,12 @@ def _peek_model(db: Session, ident: str) -> dict:
     }
 
 
-def _peek_task(db: Session, ident: str) -> dict:
+def _peek_task(db: Session, ident: str, is_admin: bool) -> dict:
     task = task_service.get_task_or_404(db, ident)
+    # 与 task_detail 的 KB-15 口径逐字一致：merged/hidden 对**所有角色**都不可见，
+    # candidate 仅管理员可见。修复前 peek 只判存在性，匿名即可读到未上架题面。
+    if task.status != "active" and not (is_admin and task.status == "candidate"):
+        raise HTTPException(status_code=404, detail="题目不存在")
     rows = (
         db.query(Demo.id, Demo.title)
         .join(DemoTask, DemoTask.demo_id == Demo.id)
@@ -147,12 +158,19 @@ def _peek_demo(db: Session, ident: str) -> dict:
 
 
 @router.get("/{kind}/{ident}")
-def peek(kind: str, ident: str, db: Session = Depends(get_db)):
-    """紧凑实体摘要（供侧滑预览）。未知 kind → 422，不猜。"""
+def peek(kind: str, ident: str, db: Session = Depends(get_db), user: User | None = Depends(optional_user)):
+    """紧凑实体摘要（供侧滑预览）。未知 kind → 422，不猜。
+
+    P-03 修复范围**仅题目侧**：与 task_detail 的 KB-15 口径逐字一致 ——
+    merged/hidden 对所有角色 404，candidate 仅 admin（依据 tasks.py:55 / task_service.py:562）。
+    模型与 demo 保持基线原有语义：模型侧的状态可见性属产品决策项，规范只约束列表过滤，
+    不构成实体详情的保密要求，本批不动（optional_user 仍保留，供题目侧判定角色）。
+    """
     if kind not in KINDS:
         raise HTTPException(status_code=422, detail=f"kind 只能是 {', '.join(KINDS)}")
+    is_admin = bool(user is not None and user.role == "admin")
     if kind == "model":
         return _peek_model(db, ident)
     if kind == "task":
-        return _peek_task(db, ident)
+        return _peek_task(db, ident, is_admin)
     return _peek_demo(db, ident)

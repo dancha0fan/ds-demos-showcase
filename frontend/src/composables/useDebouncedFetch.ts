@@ -70,6 +70,18 @@ export function useDebouncedFetch<T>(opts: DebouncedFetchOptions<T>) {
     void run(source().trim())
   }
 
+  /**
+   * 取消**尚未发出**的去抖请求（不影响已发出的在途请求与其世代号）。
+   * 使用场景（P-10）：调用方主动改变 source 的语义、但不想让这次变化触发一次
+   * 「空 key」的 run（空 key 会清空 result，把紧接着的显式 run 结果作废）。
+   */
+  function cancel() {
+    if (timer) {
+      clearTimeout(timer)
+      timer = null
+    }
+  }
+
   watch(source, (raw) => {
     const key = (raw || '').trim()
     if (timer) clearTimeout(timer)
@@ -86,5 +98,5 @@ export function useDebouncedFetch<T>(opts: DebouncedFetchOptions<T>) {
 
   // run 一并暴露：调用方偶尔需要「用显式 key 立刻搜一次」（例如打开选择器时
   // 先用已填正文搜，而不是把正文塞进输入框再触发 source）
-  return { result, loading, refresh, run }
+  return { result, loading, refresh, run, cancel }
 }

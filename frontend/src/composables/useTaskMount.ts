@@ -1,5 +1,5 @@
 // T15 拆分件（04 §5.4）：useTaskMount —— 挂题：pickedTask + 防抖搜索 + 相似度（自 UploadView.vue 逐字迁出，行为不变）
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import type { Ref } from 'vue'
 import type { TaskSuggestItem } from '../api/types'
 import { api } from '../api'
@@ -31,7 +31,7 @@ export function useTaskMount(deps: {
    * 后到的旧响应覆盖新结果，且 taskSearching 由最后返回者决定（spinner 提前消失）。
    * 少于 2 字不发请求 —— 由 minLength 承担，不再手写分支。
    */
-  const { result: taskHits, loading: taskSearching, run: runTaskSearch } = useDebouncedFetch<TaskSuggestItem[]>({
+  const { result: taskHits, loading: taskSearching, run: runTaskSearch, cancel: cancelTaskSearch } = useDebouncedFetch<TaskSuggestItem[]>({
     // 两个来源共用一份结果，阈值不同（选择器 2 字 / 正文自动推 8 字）——由 source 自己把关，
     // 不满足就返回空串短路（minLength 只当兜底下限）。
     source: () => {
@@ -57,11 +57,20 @@ export function useTaskMount(deps: {
     pickedTask.value = null
   }
   function openTaskPicker() {
-    taskPickerOpen.value = true
-    // 打开就带着已填内容去搜一次：别给用户一个空框让他从头想
-    // （用显式 run，不把正文塞进输入框 —— 塞进去会污染用户的输入框）
+    // P-10：打开选择器时「带着已填内容搜一次」的结果会被自己排下的去抖定时器清掉。
+    // 链条：`taskPickerOpen = true` → source 变 ''（"打开后不再由正文自动推"）
+    // → watch 在 flush 时排出 320ms 去抖 → 到期 run('') 命中 minLength 分支 → 清空 taskHits
+    // 并 ++seq → 把下面这次显式搜索的响应当成「旧世代」作废。正文够长（主场景）时必然失效。
+    // 修法：显式搜索先领最新世代；再在 watch flush 之后取消那次空 run 的定时器。
+    // 时序要点：watch 回调是异步（flush: 'pre'）的，同步 cancel 拦不住它，必须 nextTick。
     const text = taskQuery.value.trim() || suggestText()
-    if (text.length >= 2) void runTaskSearch(text)
+    taskPickerOpen.value = true
+    if (text.length >= 2) {
+      // 打开就带着已填内容去搜一次：别给用户一个空框让他从头想
+      // （用显式 run，不把正文塞进输入框 —— 塞进去会污染用户的输入框）
+      void runTaskSearch(text)
+      void nextTick(() => cancelTaskSearch())
+    }
   }
   /** 相似度显示成百分比（整数）：0.62 → 62% */
   function simPct(score: number): string {

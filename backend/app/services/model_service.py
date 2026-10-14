@@ -335,10 +335,15 @@ def set_demo_prompt(db: Session, demo: Demo) -> None:
 
 
 def _find_model(db: Session, ident: str | int) -> Model | None:
-    """唯一的实体解析路径：id → slug → 别名。
+    """唯一的实体解析路径：id → slug → 别名 → 名称。
 
     公开详情、admin 详情、合并/撤销/别名都必须走这里 —— 之前路由与 service 各写了一遍
     `Model.slug == slug` 查询，改 slug 后旧链接能不能救回来就变成了看运气。
+
+    name 兜底（P-06）：词表固定值存的是实体 **name**（`sync_model_tag` 以 `model.name` 写
+    `model:<name>`），而 name 与 slug 常不同（`GLM-4.5` → slug `glm-4-5`）。上传页
+    「站内战绩」拿词表值直接调 `GET /models/{词表值}`，缺这条兜底会 404 被静默吞掉。
+    name 列是 unique，且 `match_model` 早已按 name 精确匹配，这里与之一致。
     """
     model = None
     if isinstance(ident, int) or str(ident).isdigit():
@@ -349,6 +354,8 @@ def _find_model(db: Session, ident: str | int) -> Model | None:
         row = db.get(ModelAlias, str(ident))
         if row is not None:
             model = db.get(Model, row.model_id)
+    if model is None:
+        model = db.query(Model).filter(Model.name == str(ident)).first()
     return model
 
 

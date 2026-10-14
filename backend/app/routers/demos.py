@@ -419,6 +419,12 @@ def list_demos(
     if platform:
         query = query.filter(Demo.gen_platform.ilike(platform))
 
+    # sort=random 的分流依据（见下方 random 分支）：任一实质过滤存在时，随机序必须建立在
+    # **过滤后的集合**上，否则过滤被静默忽略。featured 走自己的分支，不在此列。
+    has_filter = bool(
+        tag or q or author or model or task or rounds or minutes or platform or status != "approved"
+    )
+
     if q:
         like = f"%{q}%"
         from sqlalchemy import func as sa_func, select
@@ -459,9 +465,23 @@ def list_demos(
         total = query.count()
         items = query.offset((page - 1) * page_size).limit(page_size).all()
     elif sort == "random":
-        # 首页精选整批随机：缓存整份随机 id 序（60s，按视区分键），避免每次 ORDER BY RANDOM() 全表扫
         total = query.count()
-        ids = _random_ids(db, page, page_size, scope)
+        if has_filter:
+            # 有实质过滤：必须对**过滤后**的 id 集合洗牌 —— 否则过滤条件被静默忽略，
+            # 且 total（过滤后计数）与 items（全局池）不同源自相矛盾。
+            # 顺序用「scope + 过滤签名 + 60s 时间桶」播种：桶内翻页顺序稳定（与未过滤路径的
+            # 60s 缓存同语义，page=2 不会与 page=1 重复或漏件），且不引入无界缓存
+            # （过滤组合空间大，用签名字典缓存会长大）。
+            sig = repr((status, sorted(tag), q or "", author or "", model or "", task or "",
+                        rounds or "", minutes or "", platform or ""))
+            ids = [d for (d,) in query.with_entities(Demo.id).all()]
+            random.Random(f"{scope}|{sig}|{int(time.time() // _RANDOM_TTL)}").shuffle(ids)
+            start = (page - 1) * page_size
+            ids = ids[start : start + page_size]
+        else:
+            # 无过滤：保持原有整批随机语义（60s 缓存整份随机 id 序，按视区分键，
+            # 避免每次 ORDER BY RANDOM() 全表扫）——首页「随便看看」行为不变。
+            ids = _random_ids(db, page, page_size, scope)
         if ids:
             items = db.query(Demo).filter(Demo.id.in_(ids)).all()
             order = {did: i for i, did in enumerate(ids)}
