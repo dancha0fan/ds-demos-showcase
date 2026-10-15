@@ -195,7 +195,7 @@ class DemoFromUrlIn(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = ""
     tags: list | None = None
-    demo_type: str = "web"  # web | zip | link
+    demo_type: str = "web"  # web | zip | link | image（v2 图像作品：file_url 直传图片，file 充当封面）
     external_url: str | None = None
     prompt: str = ""
     video_url: str | None = None
@@ -753,6 +753,7 @@ class TaskChainRowOut(BaseModel):
 
     slug: str
     title: str
+    cover_url: str = ""  # 图像作品一期：「并排看」的图片 URL（存储层 cover_url，可能是 webp 或外链）
     models: list[ModelBriefOut] = []
     prompt_id: int | None = None
     # None = 该作品未填提示词，一致性未知（既不算一致也不算不一致）

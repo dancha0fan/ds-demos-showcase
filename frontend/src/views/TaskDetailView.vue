@@ -11,6 +11,7 @@ import { tagLabel } from '../utils/funMode'
 import { t } from '../i18n'
 import EntityStamp from '../components/EntityStamp.vue'
 import PageHero from '../components/PageHero.vue'
+import CoverImg from '../components/CoverImg.vue'
 // 作品瀑布已被证据表取代（DemoCard / MasonryGrid 因此不再需要）
 
 const route = useRoute()
@@ -62,6 +63,35 @@ const chainStat = computed(() => {
     unknown: rows.filter((r) => r.same_prompt === null).length,
   }
 })
+
+// ---------- 并排看（图像作品一期）----------
+// 任选 2–4 件同题作品横向并排：大图 + 型号 + 评分。数据全部来自既有 chain.rows
+// （服务端已只出 approved，未过审作品不会出现在这里 —— 权限面不新增）。
+const MAX_SIDE_BY_SIDE = 4
+const pickSlugs = ref<string[]>([])
+const pickFull = computed(() => pickSlugs.value.length >= MAX_SIDE_BY_SIDE)
+
+function togglePick(slug: string, e?: Event) {
+  const i = pickSlugs.value.indexOf(slug)
+  if (i >= 0) {
+    pickSlugs.value = pickSlugs.value.filter((s) => s !== slug)
+    return
+  }
+  if (!pickFull.value) {
+    pickSlugs.value = [...pickSlugs.value, slug]
+    return
+  }
+  // 到上限被拒时状态没变 → Vue 不会重渲染 → 浏览器已经打上的勾必须手动回滚，
+  // 否则勾选态与「并排看」的实际件数不一致（用户以为选上了第 5 件）。
+  if (e?.target instanceof HTMLInputElement) e.target.checked = false
+}
+
+/** 保持与 chainRows 相同顺序（勾选顺序不重要，并排顺序跟随当前排序） */
+const pickedRows = computed(() => chainRows.value.filter((r) => pickSlugs.value.includes(r.slug)))
+const canCompare = computed(() => pickedRows.value.length >= 2)
+
+/** 切换题目时清空选择，避免把上一题的 slug 带过来（选择是页面态，不属于题库实体） */
+watch(() => route.params.slug, () => { pickSlugs.value = [] })
 </script>
 
 <template>
@@ -155,6 +185,7 @@ const chainStat = computed(() => {
       <table class="data chain-table">
         <thead>
           <tr>
+            <th class="chain-pick-col" :title="t('tasks.pickHint', '勾选 2–4 件并排看图')">{{ t('tasks.colPick', '选') }}</th>
             <th>{{ t('tasks.colModel', '模型') }}</th>
             <th>{{ t('tasks.colBrief', '题面') }}</th>
             <th>{{ t('tasks.colGen', '生成过程') }}</th>
@@ -164,6 +195,15 @@ const chainStat = computed(() => {
         </thead>
         <tbody>
           <tr v-for="r in chainRows" :key="r.slug">
+            <td class="chain-pick-col">
+              <input
+                type="checkbox"
+                :checked="pickSlugs.includes(r.slug)"
+                :disabled="pickFull && !pickSlugs.includes(r.slug)"
+                :aria-label="t('tasks.pickAria', '选择「{title}」用于并排比较', { title: r.title })"
+                @change="togglePick(r.slug, $event)"
+              />
+            </td>
             <td>
               <span v-if="!r.models.length" class="muted">—</span>
               <RouterLink v-for="m in r.models" :key="m.slug" class="chain-model" :to="`/models/${m.slug}`" target="_blank" rel="noopener">
@@ -195,6 +235,48 @@ const chainStat = computed(() => {
         </tbody>
       </table>
     </div>
+
+    <!-- 并排看（图像作品一期）：勾选 2–4 件同题作品，图并排放在一起 —— 这是「比较图像模型」
+         的正面入口，上面两块的统计与证据行都保持原样不动。 -->
+    <template v-if="canCompare">
+      <div class="section-head" style="margin-top: 28px">
+        <h2 class="section-title">{{ t('tasks.sideBySide', '并排看') }}</h2>
+        <div class="filter-row" style="margin: 0">
+          <span class="muted mono">{{ pickedRows.length }} / {{ MAX_SIDE_BY_SIDE }}</span>
+          <button type="button" class="tag-chip" @click="pickSlugs = []">{{ t('tasks.clearPick', '清空') }}</button>
+        </div>
+      </div>
+      <!-- 桌面并排、移动端水平滚动：信息（型号/评分）留在每格内可读，不截断不遮挡 -->
+      <div class="sbs-scroll">
+        <div class="sbs-grid">
+          <div v-for="r in pickedRows" :key="r.slug" class="sbs-cell card">
+            <div class="sbs-figure">
+              <CoverImg
+                v-if="r.cover_url"
+                :src="r.cover_url"
+                tier="card"
+                sizes="(max-width: 720px) 78vw, 360px"
+                :alt="r.title"
+              />
+              <div v-else class="sbs-figure-empty" aria-hidden="true">{{ r.title[0] }}</div>
+            </div>
+            <div class="sbs-meta">
+              <RouterLink class="sbs-title" :to="`/demo/${r.slug}`">{{ r.title }}</RouterLink>
+              <div v-if="r.models.length" class="sbs-models">
+                <RouterLink v-for="m in r.models" :key="m.slug" class="chain-model" :to="`/models/${m.slug}`">
+                  {{ tagLabel(m.name) }}
+                </RouterLink>
+              </div>
+              <span v-else class="muted mono">{{ t('tasks.modelUnknown', '未标注型号') }}</span>
+              <span class="mono sbs-rating">
+                <template v-if="r.rating_count">★{{ r.rating_avg?.toFixed(1) }} ({{ r.rating_count }})</template>
+                <template v-else>{{ t('tasks.noRating', '暂无评分') }}</template>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
 
     <p class="muted mono" style="text-align: center; margin-top: var(--sp-24)">
       {{ t('tasks.since', '收录') }} {{ parseDate(task.created_at).toLocaleDateString(currentLocale()) }}

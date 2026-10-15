@@ -22,11 +22,31 @@
 }
 .brief-caveat b { color: var(--err); text-transform: uppercase; letter-spacing: 0.06em; font-size: var(--fs-11); }
 .chain-table { table-layout: fixed; }
-.chain-table th:nth-child(1) { width: 18%; }
-.chain-table th:nth-child(2) { width: 30%; }
-.chain-table th:nth-child(3) { width: 13%; }
-.chain-table th:nth-child(4) { width: 26%; }
-.chain-table th:nth-child(5) { width: 13%; }
+/* 图像作品一期：证据表新增「选」列（并排看），原 5 列重排。 */
+.chain-table th:nth-child(1) { width: 6%; }
+.chain-table th:nth-child(2) { width: 16%; }
+.chain-table th:nth-child(3) { width: 28%; }
+.chain-table th:nth-child(4) { width: 12%; }
+.chain-table th:nth-child(5) { width: 25%; }
+.chain-table th:nth-child(6) { width: 13%; }
+.chain-pick-col { text-align: center; }
+.chain-pick-col input { width: 18px; height: 18px; cursor: pointer; accent-color: var(--teal); }
+.chain-pick-col input:disabled { cursor: not-allowed; opacity: 0.4; }
+/* ---------- 并排看（图像作品一期）---------- */
+.sbs-scroll { overflow-x: auto; padding-bottom: var(--sp-6); }
+.sbs-grid { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(240px, 1fr); gap: var(--sp-12); min-width: 100%; }
+.sbs-cell { display: flex; flex-direction: column; gap: var(--sp-8); padding: var(--sp-10); }
+.sbs-figure { background: var(--paper-deep); border: 2px solid var(--ink); display: grid; place-items: center; aspect-ratio: 4 / 3; overflow: hidden; }
+.sbs-figure img { width: 100%; height: 100%; object-fit: contain; }
+.sbs-figure-empty { font-family: var(--font-heading); font-weight: 900; font-size: 40px; text-transform: uppercase; }
+.sbs-meta { display: flex; flex-direction: column; gap: var(--sp-4); font-size: var(--fs-12); }
+.sbs-title { font-weight: 700; overflow-wrap: anywhere; }
+.sbs-models { display: flex; flex-wrap: wrap; gap: var(--sp-4); }
+.sbs-rating { color: var(--ink-soft); }
+/* 窄屏：每格按视口的 78% 宽，横向滚动看其余（信息仍留在格内可读，不截断） */
+@media (max-width: 720px) {
+  .sbs-grid { grid-auto-columns: 78vw; }
+}
 .chain-model {
   display: inline-block;
   margin: 0 var(--sp-6) var(--sp-4) 0;

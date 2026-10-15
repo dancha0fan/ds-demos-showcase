@@ -1483,6 +1483,27 @@ export const mockApi = {
         { model: { id: 3, slug: 'ds-unknown', name: 'ds-unknown', vendor: null, status: 'unverified' }, demo_count: 1, avg_rating: 4.0, avg_rounds: null, avg_minutes: null, best_demo: null },
       ],
       demos,
+      // 图像作品一期：并排看的数据源与真接口同形（rows 带 cover_url；真接口只出 approved）
+      chain: {
+        brief: task.description || '',
+        brief_source: task.description ? 'description' : '',
+        prompt_id: null,
+        prompt_variants: 0,
+        no_prompt_count: demos.filter((d) => !(d.prompt || '').trim()).length,
+        rows: demos.map((d) => ({
+          slug: d.slug,
+          title: d.title,
+          cover_url: d.cover_url,
+          models: d.models ?? [],
+          prompt_id: null,
+          same_prompt: null,
+          prompt_excerpt: (d.prompt || '').slice(0, 120),
+          rounds: null,
+          minutes: null,
+          rating_avg: d.rating_count ? d.rating_avg ?? null : null,
+          rating_count: d.rating_count ?? 0,
+        })),
+      },
     }
   },
   async getPromptClusters(_opts: { refresh?: boolean; minScore?: number } = {}): Promise<PromptClusters> {
@@ -1622,14 +1643,20 @@ export const mockApi = {
     await delay(500)
     onProgress?.(100)
     if (!currentUser) throw new Error('请先登录')
-    if (payload.demo_type !== 'link' && !payload.file) throw new Error('请上传 zip 文件')
+    if (payload.demo_type === 'image') {
+      if (!payload.file) throw new Error('请上传图像文件')
+      if (!/\.(png|jpg|jpeg|webp)$/i.test(payload.file.name)) throw new Error('图像作品仅支持 PNG / JPG / JPEG / WEBP')
+    } else if (payload.demo_type !== 'link' && !payload.file) throw new Error('请上传 zip 文件')
     const id = mockDemoIdSeq++
     const slug = 'demo_' + Math.random().toString(16).slice(2, 10)
+    // 图像作品：图即作品，直接用本地对象 URL 展示上传的那张图（真后端落 /media/covers/*.webp）；
+    // srcset 派生档只对 /media/covers/*.webp 生效 → CoverImg 会自动回落到本对象 URL。
+    const imageCover = payload.demo_type === 'image' && payload.file ? URL.createObjectURL(payload.file) : ''
     const demo: DemoDetail = {
       slug,
       title: payload.title,
       description: payload.description || '',
-      cover_url: svgCover('#95e1d3', 'NEW', 'just uploaded'),
+      cover_url: imageCover || svgCover('#95e1d3', 'NEW', 'just uploaded'),
       author: currentUser.username,
       author_id: currentUser.id,
       tags: [...(payload.tags || []).map((t) => toTagRef(t)), { key: 'author', value: currentUser.username }],
