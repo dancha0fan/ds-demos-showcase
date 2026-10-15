@@ -86,3 +86,17 @@
 .chain-gen { font-size: var(--fs-12); white-space: nowrap; }
 .chain-work { font-weight: 700; overflow-wrap: anywhere; }
 
+
+/* 并排看 · 比较语义徽章（题目系统 v2）：图像作品=看图；web/zip/link=看封面+点进作品 */
+.sbs-type {
+  display: inline-block;
+  width: fit-content;
+  padding: 0 var(--sp-6);
+  font-size: var(--fs-11);
+  font-weight: 900;
+  color: var(--paper);
+  background: var(--ink-soft, #555);
+  border: 2px solid var(--ink);
+}
+.sbs-type--image { background: var(--teal, #4ecdc4); color: var(--on-accent, #000); }
+.sbs-type--web { background: var(--ink); color: var(--paper); }

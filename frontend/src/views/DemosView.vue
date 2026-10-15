@@ -1,16 +1,19 @@
 <script setup lang="ts">
 defineOptions({ name: 'DemosView' })
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import { api } from '../api'
 import { useLoadGeneration } from '../composables/useLoadGeneration'
 import type { DemoSummary, TagKeyInfo } from '../api/types'
 import { tagLabel } from '../utils/funMode'
 import { guessVendor } from '../utils/tagGroups'
 import { chipLabel, intBounds, intBoundsOf, quickPresets, vendorDot } from '../utils/demoFacets'
+import { dedupeBySlug, groupByTask, isFoldableGroup, type TaskGroup } from '../utils/demoList'
 import { useDemoFilters } from '../composables/useDemoFilters'
 import { useFacetDrawer } from '../composables/useFacetDrawer'
 import type { QuickPreset } from '../utils/demoFacets'
 import { t, keyLabel, vendorLabel } from '../i18n'
+import CoverImg from '../components/CoverImg.vue'
 import DemoCard from '../components/DemoCard.vue'
 import EmptyBox from '../components/EmptyBox.vue'
 import MasonryGrid from '../components/MasonryGrid.vue'
@@ -21,6 +24,15 @@ import PageHero from '../components/PageHero.vue'
 
 const demos = ref<DemoSummary[]>([])
 const tagKeys = ref<TagKeyInfo[]>([])
+const route = useRoute()
+
+// URL ?task=<slug>：题目域浏览（如题目页「查看本题全部作品」链过来）。
+// 双重语义：既作为列表过滤条件透传给后端，也作为同题分组的归属优先项
+//（多题作品优先归入当前筛选题，分组语义与筛选语义一致）。
+const preferTaskSlug = computed(() => {
+  const v = route.query.task
+  return typeof v === 'string' && v.trim() ? v.trim() : ''
+})
 
 // RF-4e：筛选状态 + URL 双向同步抽到 useDemoFilters（可单测；onChange 即原来的 reset()）
 const {
@@ -48,6 +60,76 @@ const loadingMore = ref(false)
 const refreshing = ref(false)
 const error = ref('')
 const hasMore = ref(true)
+
+// ---------- 同题折叠（作品库按稳定题目 slug 分组）----------
+// 分组数据层在 utils/demoList（纯函数可单测）：分组键 = 题目 slug（列表接口随作品返回），
+// 不按标题猜同题；组序跟随当前排序，筛选/分页语义不动。开关记忆与分面钉住同款 localStorage。
+const TG_PREF_KEY = 'demos.taskGroup'
+const taskGroupOn = ref(readTgPref())
+function readTgPref(): boolean {
+  try {
+    return localStorage.getItem(TG_PREF_KEY) !== '0'
+  } catch {
+    return true
+  }
+}
+function setTaskGroup(on: boolean) {
+  taskGroupOn.value = on
+  try {
+    localStorage.setItem(TG_PREF_KEY, on ? '1' : '0')
+  } catch {
+    /* 隐私模式等存储不可用：仅本会话生效 */
+  }
+}
+const demoGroups = computed(() => groupByTask(demos.value, preferTaskSlug.value || undefined))
+// 展开态按组键记忆；换筛选（reset）清空——旧展开态对新数据集没有意义
+const tgOpen = ref<Record<string, boolean>>({})
+function isTgOpen(g: TaskGroup<DemoSummary>) {
+  return !!tgOpen.value[g.key!]
+}
+function toggleTg(g: TaskGroup<DemoSummary>) {
+  tgOpen.value = { ...tgOpen.value, [g.key!]: !isTgOpen(g) }
+}
+
+// ---------- 返回恢复：离开时记录已加载页数与滚动位，回来先补齐深度再落点 ----------
+// 路由 savedPosition 只在内容够高时有效，而本页重挂载只会拉第 1 页 —— 不补深度，
+// 返回时永远被钳在第 1 页底部（无限滚动经典回退坑）。快照按 query 签名匹配，换筛选不误恢复。
+// 随机种子（rs）与分组展开态（tg）一并保存：返回后同一段浏览继续同一次洗牌、组开合不变。
+const randomSeed = ref('')
+const DEPTH_KEY = 'demos.depth.v2'
+const DEPTH_MAX_PAGES = 20
+type DepthSnapshot = { sig: string; pages: number; y: number; rs?: string; tg?: Record<string, boolean> }
+function depthSig() {
+  return window.location.search
+}
+function saveDepthSnapshot() {
+  try {
+    const pages = page.value - 1 // page 指向「下一页」，已加载页数 = page-1
+    if (pages >= 1 && demos.value.length) {
+      sessionStorage.setItem(
+        DEPTH_KEY,
+        JSON.stringify({ sig: depthSig(), pages, y: window.scrollY, rs: randomSeed.value || undefined, tg: tgOpen.value }),
+      )
+    } else {
+      sessionStorage.removeItem(DEPTH_KEY)
+    }
+  } catch {
+    /* sessionStorage 不可用（隐私模式）：放弃恢复，不影响浏览 */
+  }
+}
+function readDepthSnapshot(): DepthSnapshot | null {
+  try {
+    const raw = sessionStorage.getItem(DEPTH_KEY)
+    if (!raw) return null
+    const s = JSON.parse(raw) as DepthSnapshot
+    return s && typeof s.sig === 'string' && s.pages >= 1 ? s : null
+  } catch {
+    return null
+  }
+}
+onBeforeRouteLeave(() => {
+  saveDepthSnapshot()
+})
 
 type FilterGroup = {
   key: string
@@ -294,12 +376,18 @@ async function load(reset = false) {
       tags: selectedTags.value,
       q: submittedQ.value || undefined,
       model: modelFilter.value || undefined,
+      task: preferTaskSlug.value || undefined,
       sort: cardMode.value === 'prompt' ? 'prompt' : sort.value,
+      // random 的会话固定种子：首响拿到 random_seed，后续页回传 —— 整段翻页建立在同一次
+      // 洗牌上（后端根修跨时间桶不重复不漏件）；换筛选（reset）清空重新领种子。
+      rs: sort.value === 'random' && randomSeed.value ? randomSeed.value : undefined,
       page: p,
       page_size: pageSize,
     })
     if (!gen.isCurrent(my)) return // 作废：已有更新的请求发出/返回，旧结果不许写
-    demos.value = reset ? res.items : [...demos.value, ...res.items]
+    if (reset) demos.value = res.items
+    else demos.value = dedupeBySlug(demos.value, res.items).items // 兜底层：顺序稳定根修在 rs
+    if (res.random_seed) randomSeed.value = res.random_seed
     total.value = res.total
     page.value = p + 1
     hasMore.value = demos.value.length < res.total
@@ -322,6 +410,8 @@ function reset() {
   error.value = ''
   page.value = 1
   hasMore.value = true
+  randomSeed.value = '' // 新的随机浏览段：重新领种子
+  tgOpen.value = {} // 新数据集，旧展开态没有意义
   void load(true)
 }
 
@@ -418,6 +508,20 @@ onMounted(async () => {
   await loadFacetKeys()
   initIntRanges(tagKeys.value, intBoundsOf)
   await load(true)
+  // 返回恢复：把离开时已加载的页依次补齐（load 内部有世代号守卫，这里顺序 await 无并发），
+  // 再把滚动落回离开时的位置 —— savedPosition 在第 1 页高度内会被钳底，这里显式校正。
+  // 随机种子与分组展开态一并还原：同一段浏览继续同一次洗牌，组开合保持离开时的样子。
+  const snap = readDepthSnapshot()
+  if (snap && snap.sig === depthSig()) {
+    if (snap.rs) randomSeed.value = snap.rs
+    if (snap.tg) tgOpen.value = snap.tg
+    const want = Math.min(snap.pages, DEPTH_MAX_PAGES)
+    for (let i = 1; i < want && hasMore.value && !error.value; i++) await load(false)
+    if (demos.value.length) {
+      await nextTick()
+      window.scrollTo(0, snap.y)
+    }
+  }
   observer = new IntersectionObserver(
     (entries) => {
       // reset/首载进行中、或没有更多时，不触发翻页（避免列表塌陷后 sentinel 进视口误翻页）
@@ -464,6 +568,14 @@ onBeforeUnmount(() => observer?.disconnect())
         <!-- 03 §4.3：「随机」在数据产品语境里像统计功能，「随便看看」表达消遣心智；移末位 -->
         <button class="tab" :class="{ active: sort === 'random' }" type="button" @click="sort = 'random'; applySort()">{{ t('demos.casual', '随便看看') }}</button>
       </div>
+      <!-- 同题折叠开关（默认开，记忆）：分组只是呈现层，排序/筛选/分页语义不变 -->
+      <button
+        class="tab"
+        :class="{ active: taskGroupOn }"
+        type="button"
+        :aria-pressed="taskGroupOn"
+        @click="setTaskGroup(!taskGroupOn)"
+      >{{ t('demos.taskGroup', '按题折叠') }}</button>
     </div>
 
     <div class="toolbar">
@@ -567,6 +679,51 @@ onBeforeUnmount(() => observer?.disconnect())
           </div>
         </div>
 
+        <!-- 同题折叠：多件真题组默认收起为封面摘要，可展开；单件组/未挂题组原样平铺 -->
+        <template v-if="taskGroupOn">
+          <section v-for="g in demoGroups" :key="g.key ?? '__ungrouped'" class="tg-group">
+            <div v-if="g.key" class="tg-head">
+              <button
+                v-if="isFoldableGroup(g)"
+                class="tg-toggle"
+                type="button"
+                :aria-expanded="isTgOpen(g)"
+                @click="toggleTg(g)"
+              >
+                <span class="tg-caret" :class="{ open: isTgOpen(g) }" aria-hidden="true">▸</span>
+                <span class="tg-title">{{ g.task!.title }}</span>
+                <!-- 口径诚实：分组作用于已加载切片，这里只是已加载数，不冒充题目总件数 -->
+                <span class="tg-count">{{ t('demos.tgCount', '已加载 {n} 件', { n: g.items.length }) }}</span>
+              </button>
+              <span v-else class="tg-toggle tg-toggle--static">
+                <span class="tg-title">{{ g.task!.title }}</span>
+                <span class="tg-count">{{ t('demos.tgCount', '已加载 {n} 件', { n: g.items.length }) }}</span>
+              </span>
+              <RouterLink class="tg-link" :to="`/tasks/${g.task!.slug}`">{{ t('demos.tgOpen', '题目页 →') }}</RouterLink>
+            </div>
+            <div v-else class="tg-head tg-head--plain">
+              <span class="tg-toggle tg-toggle--static">
+                <span class="tg-title">{{ t('demos.tgUngrouped', '未挂题作品') }}</span>
+                <span class="tg-count">{{ g.items.length }}</span>
+              </span>
+            </div>
+
+            <div v-if="isFoldableGroup(g) && !isTgOpen(g)" class="tg-summary">
+              <RouterLink v-for="d in g.items.slice(0, 3)" :key="d.slug" class="tg-thumb" :to="`/demo/${d.slug}`">
+                <CoverImg v-if="d.cover_url" :src="d.cover_url" tier="thumb" :alt="d.title" />
+                <span v-else class="tg-thumb-fallback" aria-hidden="true">{{ d.title[0] }}</span>
+              </RouterLink>
+              <span v-if="g.items.length > 3" class="tg-more">+{{ g.items.length - 3 }}</span>
+              <span class="tg-hint muted">{{ t('demos.tgExpand', '展开查看全部') }}</span>
+            </div>
+            <MasonryGrid v-else :items="g.items" :item-key="(d: unknown) => (d as DemoSummary).slug">
+              <template #default="{ item }">
+                <PromptDemoCard v-if="cardMode === 'prompt'" :demo="item as DemoSummary" />
+                <DemoCard v-else :demo="item as DemoSummary" />
+              </template>
+            </MasonryGrid>
+          </section>
+        </template>
         <MasonryGrid v-else :items="demos" :item-key="(d: unknown) => (d as DemoSummary).slug">
           <template #default="{ item }">
             <PromptDemoCard v-if="cardMode === 'prompt'" :demo="item as DemoSummary" />
@@ -1042,6 +1199,112 @@ span.fp-group-head {
   .fp-caret {
     transition: none;
   }
+  .tg-caret {
+    transition: none;
+  }
+}
+
+/* ============================================================
+   同题折叠（作品库按题分组）：组头=实线分割 + 44px 触达；
+   收起摘要=3 张缩略 + 余量计数。全部 scoped，令牌带字面回落。
+   ============================================================ */
+.tg-group {
+  border-top: 2px solid var(--ink, #000);
+  padding-top: var(--sp-8);
+}
+.tg-group:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+.tg-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  min-height: 44px; /* 触达底线 */
+  margin-bottom: var(--sp-8);
+}
+.tg-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-8);
+  background: none;
+  border: none;
+  padding: var(--sp-4) 0;
+  font: inherit;
+  cursor: pointer;
+  color: var(--ink, #000);
+  text-align: left;
+}
+span.tg-toggle--static {
+  cursor: default;
+}
+.tg-caret {
+  display: inline-block;
+  font-weight: 900;
+  transition: transform var(--b-dur, 150ms) var(--b-ease, cubic-bezier(0, 0, 0.2, 1));
+}
+.tg-caret.open {
+  transform: rotate(90deg);
+}
+.tg-title {
+  font-family: var(--font-heading, sans-serif);
+  font-weight: 900;
+  font-size: var(--fs-14);
+}
+.tg-count {
+  font-family: var(--font-body, monospace);
+  font-size: var(--fs-11);
+  font-weight: 700;
+  background: var(--yellow, #ffd93d);
+  color: var(--ink, #000);
+  border: 2px solid var(--ink, #000);
+  padding: 0 var(--sp-6);
+  white-space: nowrap;
+}
+.tg-link {
+  margin-left: auto;
+  font-size: var(--fs-12);
+  white-space: nowrap;
+}
+.tg-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  padding: 0 0 var(--sp-12);
+}
+.tg-thumb {
+  width: 64px;
+  height: 48px;
+  border: 2px solid var(--ink, #000);
+  overflow: hidden;
+  display: block;
+  flex: none;
+}
+.tg-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.tg-thumb-fallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--wash-mint, #4ecdc4);
+  font-family: var(--font-heading, sans-serif);
+  font-weight: 900;
+  color: var(--ink, #000);
+}
+.tg-more {
+  font-family: var(--font-body, monospace);
+  font-size: var(--fs-12);
+  font-weight: 700;
+}
+.tg-hint {
+  font-size: var(--fs-11);
+  margin-left: auto;
 }
 
 /* B2 键盘可达：.vendor-strip-head 的结构样式（flex/gap/padding/hover）在 styles/pages/demos.css，

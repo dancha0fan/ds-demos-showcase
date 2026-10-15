@@ -1,16 +1,24 @@
-"""题目实体公开接口（v2 B1）：列表 / 详情（含按模型对比=Benchmark 数据）/ 规则建议。"""
+"""题目实体公开接口（v2 B1）：列表 / 详情（含按模型对比=Benchmark 数据）/ 规则建议 / 独立出题。"""
+
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import optional_user
-from ..models import Demo, DemoTask, Task, User
-from ..schemas import TaskDetailOut, TaskListOut, TaskSuggestItemOut
+from ..deps import current_user, optional_user
+from ..models import Demo, DemoTask, EntitySuggestion, Task, User
+from ..schemas import TaskDetailOut, TaskListOut, TaskProposalIn, TaskProposalOut, TaskSuggestItemOut
 from ..serializers import preload_demo_relations, serialize_demo
-from ..services import task_service
+from ..services import ratelimit, suggestion_service, task_service
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+# 独立出题限流：每用户每小时 10 次（全站限流单一实现，KB-21）
+TASK_PROPOSE_RATE_LIMIT = 10
+# 与上传页 propose_task 同一置信档（demos.USER_MATCH_CONFIDENCE=0.98）：必进收件箱人工审，
+# 够不到 AUTO_ACCEPT(0.99) —— 审核语义与上传提议新题完全一致
+PROPOSE_CONFIDENCE = 0.98
 
 
 @router.get("/suggest", response_model=list[TaskSuggestItemOut])
@@ -44,6 +52,68 @@ def list_tasks(
         db, status=status, q=q, category=category, sort=sort, page=page, page_size=page_size
     )
     return TaskListOut(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.post("", status_code=202, response_model=TaskProposalOut)
+def propose_task(
+    payload: TaskProposalIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    """独立出题（登录用户）：题目不再只能是作品的附属品。
+
+    与上传页「提议新题」走同一条审核路径：只落 pending EntitySuggestion(kind=new_task)，
+    管理员在收件箱批准后才由 suggestion_service.review 调 create_task(status=active) 公开。
+    不开放匿名（current_user 必须登录），不直建 Task —— 权限面与审核语义零新增。
+    """
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="title 必填（不能全是空白）")
+    description = payload.description.strip()
+    category = (payload.category or "").strip() or None
+
+    ratelimit.hit(f"task:propose:{user.id}", TASK_PROPOSE_RATE_LIMIT, 3600)
+
+    # 与既有 active 题目逐字同名 → 409 指路（按标题「猜」同题不做，但完全同名值得挡，
+    # 否则收件箱里会堆出只差一个字的重复题让管理员人工分辨）
+    exists = db.query(Task).filter(Task.title == title, Task.status == "active").first()
+    if exists is not None:
+        raise HTTPException(status_code=409, detail=f"已存在同名题目：/tasks/{exists.slug}")
+
+    # 同一用户已提交过同题名提案 → 幂等返回不堆箱（dedupe=False 后，业务键去重在这里做）
+    for s in (
+        db.query(EntitySuggestion)
+        .filter(
+            EntitySuggestion.kind == "new_task",
+            EntitySuggestion.status == "pending",
+            EntitySuggestion.created_by == user.id,
+        )
+        .all()
+    ):
+        try:
+            data = json.loads(s.payload or "{}")
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict) and (data.get("title") or "").strip() == title:
+            return TaskProposalOut(status="pending", suggestion_id=s.id, duplicate=True)
+
+    s = suggestion_service.create(
+        db,
+        kind="new_task",
+        payload={
+            "title": title,
+            "description": description,
+            **({"category": category} if category else {}),
+        },
+        confidence=PROPOSE_CONFIDENCE,
+        source="user",
+        created_by=user.id,
+        dedupe=False,  # 三条定位键全 None 会被判成同一条；去重已由上面的同用户同题名检查承担
+    )
+    if s is None:  # 防御：dedupe=False 时 create 不会返回 None
+        raise HTTPException(status_code=500, detail="提案入箱失败，请重试")
+    db.commit()  # KB-16：create 只 flush，事务边界归调用方
+    return TaskProposalOut(status="pending", suggestion_id=s.id, duplicate=False)
 
 
 @router.get("/{slug}", response_model=TaskDetailOut)

@@ -16,6 +16,8 @@ export const routes: RouteRecordRaw[] = [
   { path: '/models', name: 'models', component: () => import('../views/ModelsView.vue'), meta: { title: '模型', keepAlive: true, wide: true } },
   { path: '/models/:slug', name: 'model-detail', component: () => import('../views/ModelDetailView.vue'), props: true, meta: { title: '模型' } },
   { path: '/tasks', name: 'tasks', component: () => import('../views/TasksView.vue'), meta: { title: '题目', keepAlive: true, wide: true } },
+  // 独立出题放在 /tasks/:slug 之前：静态段优先，避免被参数路由吞并
+  { path: '/tasks/new', name: 'task-new', component: () => import('../views/TaskNewView.vue'), meta: { title: '出题', requiresAuth: true } },
   { path: '/tasks/:slug', name: 'task-detail', component: () => import('../views/TaskDetailView.vue'), props: true, meta: { title: '题目' } },
   // v2 D3：/tags 原地升级为「探索」（URL 不变保外链兼容），旧的键浏览页下移到 /tags/keys
   { path: '/tags', name: 'explore', component: () => import('../views/ExploreView.vue'), meta: { title: '探索', keepAlive: true, wide: true } },

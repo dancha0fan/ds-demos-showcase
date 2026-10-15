@@ -42,6 +42,8 @@ onMounted(load)
     <p class="sub">{{ t('tasks.sub', '同一道题，不同模型各交了什么 —— 题目是本站的比较单位。') }}</p>
     <div class="filter-row" style="margin-top: var(--sp-16)">
       <span class="mini-stat"><b>{{ total }}</b> {{ t('tasks.count', '道题目') }}</span>
+      <!-- 独立出题入口：题目不再只能是作品的附属品（匿名点进会被引导登录，路由守卫接管） -->
+      <RouterLink class="btn btn-sm btn-primary" to="/tasks/new">{{ t('tasks.newTask', '＋ 出题') }}</RouterLink>
     </div>
   </PageHero>
 

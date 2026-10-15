@@ -311,6 +311,9 @@ class Paginated(BaseModel):
     total: int
     page: int
     page_size: int
+    # sort=random 专用：本次列表顺序的会话固定种子。客户端翻页回传 ?rs= 它，
+    # 整段翻页建立在同一次洗牌上（跨 60s 时间桶不重复不漏件）；其他 sort 恒 None。
+    random_seed: str | None = None
 
 
 class DemoCreateResult(BaseModel):
@@ -748,12 +751,31 @@ class TaskListOut(BaseModel):
     page_size: int
 
 
+class TaskProposalIn(BaseModel):
+    """独立出题（登录用户，不依赖上传作品）：title 必填，描述/分类可选。"""
+
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=4000)
+    category: str | None = Field(default=None, max_length=64)
+
+
+class TaskProposalOut(BaseModel):
+    """出题受理结果：只进待审收件箱（复用 EntitySuggestion 审核路径），不直建 Task。"""
+
+    status: Literal["pending"]
+    suggestion_id: int
+    # duplicate=True = 同一用户已提交过同题名的待审提案，本次幂等返回不堆箱
+    duplicate: bool = False
+
+
 class TaskChainRowOut(BaseModel):
     """证据表的一行 = 一件作品，列即链条环节（模型 → 题面 → 生成过程 → 评分）。"""
 
     slug: str
     title: str
     cover_url: str = ""  # 图像作品一期：「并排看」的图片 URL（存储层 cover_url，可能是 webp 或外链）
+    # 并排看的比较语义：image=看图；web/zip/link=看封面+点进作品
+    demo_type: str = "web"
     models: list[ModelBriefOut] = []
     prompt_id: int | None = None
     # None = 该作品未填提示词，一致性未知（既不算一致也不算不一致）
