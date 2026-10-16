@@ -48,25 +48,34 @@ def _slugs(payload):
 
 
 def test_seed_roundtrip_and_full_pagination(client, seeder):
+    """口径：把池子收窄到本用例自己播的 12 件（q=rseed）。
+
+    conftest 的库是 session 级、跨文件共享的（别的用例也会上传已上架作品），
+    拿「全局最新 100 件」当参照会让断言依赖「全库恰好 ≤15 件」——那是测试脆弱性，
+    不是产品行为（同款口径说明见 test_list_filter_consistency.py 的 P-02 用例）。
+    """
     seeder("rseed", 12)
-    r1 = _rand(client, page=1, page_size=5)
+    scope = {"q": "rseed"}  # 只覆盖本用例自己播的 12 件
+    r1 = _rand(client, page=1, page_size=5, **scope)
     assert r1.status_code == 200, r1.text
     p1 = r1.json()
     seed = p1["random_seed"]
     assert seed, "无 rs 响应必须回传 random_seed，否则客户端无从 pin 顺序"
+    assert p1["total"] == 12, f"过滤后 total 必须是本用例自己的 12 件，实际 {p1['total']}"
 
     # 回放同页：同种子同顺序（可 pin 的定义）
-    r1b = _rand(client, page=1, page_size=5, rs=seed)
+    r1b = _rand(client, page=1, page_size=5, rs=seed, **scope)
     assert _slugs(r1b.json()) == _slugs(p1)
 
     # 翻完整段：页间零重复，并集恰为全集（无漏件）
     seen: list[str] = []
-    for page in (1, 2, 3):
-        r = _rand(client, page=page, page_size=5, rs=seed)
+    for page in range(1, 4):  # 12 件 / 每页 5 → 3 页取完
+        r = _rand(client, page=page, page_size=5, rs=seed, **scope)
         assert r.status_code == 200
         seen.extend(_slugs(r.json()))
     assert len(seen) == len(set(seen)), "同一种子翻页出现重复件"
-    ref = client.get("/api/v1/demos", params={"sort": "newest", "page_size": 100}).json()
+    assert len(seen) == p1["total"], f"同一种子翻页漏件：取到 {len(seen)} 件，应为 {p1['total']}"
+    ref = client.get("/api/v1/demos", params={"sort": "newest", "page_size": 100, **scope}).json()
     assert set(seen) == {d["slug"] for d in ref["items"]}, "同一种子翻页漏件"
     assert p1["total"] == ref["total"]
 

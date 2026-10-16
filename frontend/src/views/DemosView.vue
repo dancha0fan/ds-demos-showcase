@@ -390,7 +390,10 @@ async function load(reset = false) {
     if (res.random_seed) randomSeed.value = res.random_seed
     total.value = res.total
     page.value = p + 1
-    hasMore.value = demos.value.length < res.total
+    // 终止条件不能只看「去重后长度 < total」：dedupeBySlug 丢掉的重复件不会再被取回
+    // （页码只前进），length 永远追不上 total → hasMore 卡死为 true，「已加载全部 N 个」
+    // 永不出现、滚到底后反复发空页请求。空页是服务端分页的权威到底信号。
+    hasMore.value = res.items.length > 0 && demos.value.length < res.total
   } catch (e) {
     if (!gen.isCurrent(my)) return
     error.value = (e as Error).message
@@ -507,19 +510,24 @@ onMounted(async () => {
   applyRouteQuery()
   await loadFacetKeys()
   initIntRanges(tagKeys.value, intBoundsOf)
-  await load(true)
-  // 返回恢复：把离开时已加载的页依次补齐（load 内部有世代号守卫，这里顺序 await 无并发），
-  // 再把滚动落回离开时的位置 —— savedPosition 在第 1 页高度内会被钳底，这里显式校正。
-  // 随机种子与分组展开态一并还原：同一段浏览继续同一次洗牌，组开合保持离开时的样子。
+  // 返回恢复：**先**读快照并把随机种子装回去，再发第 1 页请求。
+  // 顺序是正确性的一部分（2026-10-16 实测）：若先 load(true) 再 pin 种子，第 1 页会用服务端
+  // 新发的种子 S2、第 2..N 页才用离开时的 S1 —— 两套置换混排，重复件被 dedupeBySlug 吞掉，
+  // 而「只在 S1 第 1 页、又不在 S2 第 1 页也不在 S1 第 2..N 页」的件永久丢失（漏件无兜底）。
   const snap = readDepthSnapshot()
-  if (snap && snap.sig === depthSig()) {
-    if (snap.rs) randomSeed.value = snap.rs
-    if (snap.tg) tgOpen.value = snap.tg
-    const want = Math.min(snap.pages, DEPTH_MAX_PAGES)
+  const restore = snap && snap.sig === depthSig() ? snap : null
+  if (restore?.rs) randomSeed.value = restore.rs
+  await load(true)
+  if (restore) {
+    // 把离开时已加载的页依次补齐（load 内部有世代号守卫，这里顺序 await 无并发），
+    // 再把滚动落回离开时的位置 —— savedPosition 在第 1 页高度内会被钳底，这里显式校正。
+    // 分组展开态一并还原：组开合保持离开时的样子。
+    if (restore.tg) tgOpen.value = restore.tg
+    const want = Math.min(restore.pages, DEPTH_MAX_PAGES)
     for (let i = 1; i < want && hasMore.value && !error.value; i++) await load(false)
     if (demos.value.length) {
       await nextTick()
-      window.scrollTo(0, snap.y)
+      window.scrollTo(0, restore.y)
     }
   }
   observer = new IntersectionObserver(
@@ -1308,14 +1316,13 @@ span.tg-toggle--static {
 }
 
 /* B2 键盘可达：.vendor-strip-head 的结构样式（flex/gap/padding/hover）在 styles/pages/demos.css，
-   冻结区不动；此处仅在**当前视图**内把「该元素已是 <button>」的 UA 默认样式清零，
-   让真 button 渲染得与原先 span 一致（原 role=button 的 span 不可聚焦，已换为真按钮）。 */
+   冻结区不动；UA 默认按钮样式的清零收口在 styles/base/reset.css 的
+   `:where(button[data-reset])`（特异性 0，保证不会盖掉冻结区）。
+   此处只补冻结区没声明、而 button 默认会带上的两项——**不要**再写 all: unset / display /
+   align-items / gap / cursor：scoped 编译后特异性 0-2-1，会抹掉冻结区的
+   background(mint) / border-bottom / padding / gap(--sp-8)（2026-10-16 实测）。 */
 button[data-reset].vendor-strip-head {
-  all: unset;
-  display: flex;
-  align-items: center;
   width: 100%;
-  cursor: pointer;
   font: inherit;
 }
 /* 焦点可见性与站点一致：focus 走 hover 的纸深底（与 fp-group-head 的 hover/focus 处理同款） */

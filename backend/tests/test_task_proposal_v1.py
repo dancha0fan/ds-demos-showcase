@@ -68,7 +68,16 @@ def _pending_new_tasks(user_id: int | None = None):
 
 
 def test_propose_requires_auth(client):
-    r = client.post("/api/v1/tasks", json={"title": "匿名也想出题"})
+    # 必须用**独立 client 实例**发这条匿名请求：conftest 的 client 是 session 级的，
+    # 而登录会 set_cookie（security.py set_auth_cookie），token_from_request 又回落到 cookie
+    # —— 前面任何用例登录过，这里无头请求就会被认证成该用户而拿到 202，
+    # 断言会以「看起来像权限漏洞」的方式失败。同款写法见 test_security_batch1.py 的匿名 peek 段。
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app) as anon:
+        r = anon.post("/api/v1/tasks", json={"title": "匿名也想出题"})
     assert r.status_code == 401, r.text
     # 且不留待审行（按题名圈定：库是跨文件共享的，全局计数会吃别人留下的行）
     db = _db()
