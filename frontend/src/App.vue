@@ -126,7 +126,7 @@ onMounted(() => {
   <!-- P3-fix：宽档挂在外壳根上（自定义属性 --w-shell 由此继承给顶栏/主区/页脚三处）——
        原先只把 main 换成 --w-wide，顶栏与页脚仍是 1280：1440 屏内容比顶栏宽 57px、
        1920 屏宽 80px（用户实测报的就是这条）。外壳宽度只能有一个真源。 -->
-  <div class="app-shell" :class="{ 'forum-shell': route.meta.forum, 'shell-wide': route.meta.wide }">
+  <div class="app-shell" :class="{ 'forum-shell': route.meta.forum, 'shell-wide': route.meta.wide, 'no-tabbar': route.meta.hideTabBar }">
     <!-- P2：meta.bare（独立预览页）连顶栏都不渲染 —— 那一页的目标是"无干扰地玩" -->
     <template v-if="!route.meta.forum && !route.meta.bare">
     <header class="topbar container">
@@ -277,8 +277,9 @@ onMounted(() => {
       </footer>
     </template>
 
-    <!-- M2-1 移动 TabBar（03 §10.2）：非 forum 双皮壳壳层挂载；<720 渲染，桌面零渲染 -->
-    <AppTabBar v-if="!route.meta.forum && !route.meta.bare" />
+    <!-- M2-1 移动 TabBar（03 §10.2）：非 forum 双皮壳壳层挂载；<720 渲染，桌面零渲染。
+         meta.hideTabBar：作品详情自带贴底动作条（含返回），两条叠加会占掉手机屏约 15% -->
+    <AppTabBar v-if="!route.meta.forum && !route.meta.bare && !route.meta.hideTabBar" />
 
     <ConfirmHost />
     <ToastHost />
@@ -296,29 +297,39 @@ onMounted(() => {
   display: contents;
 }
 /* T7 v3 三段对称栅格：[1fr auto 1fr]=品牌|中导航|右簇——中导航几何居中（CDP 验收偏差 ≤8px）。
-   scoped display:grid 特异性压过全局 .topbar 的 flex；<720 中列（topnav-desktop 全局隐藏）塌缩 0 宽
-   =品牌/右簇 1fr 两端，移动降级（M2-1 基线）不变；全局媒体规则里的 flex-direction 随 display:grid 失效无害 */
+   scoped display:grid 特异性压过全局 .topbar 的 flex；全局媒体规则里的 flex-direction 随 display:grid 失效无害。
+   三个子项必须显式指定列：display:none 的项不占格，<720 隐藏中导航后右簇会被自动放进 auto 中列，
+   品牌被挤在左列里折成三行。 */
 .topbar {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
 }
 .topbar > .brand {
+  grid-column: 1;
   justify-self: start;
 }
 .topbar > nav.topnav-desktop {
+  grid-column: 2;
   justify-self: center;
 }
 .topbar > .topnav-tools {
+  grid-column: 3;
   justify-self: end;
 }
 @media (max-width: 720px) {
+  .topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .topbar > .topnav-tools {
+    grid-column: 2;
+  }
   .auth-cluster {
     display: none;
   }
-  /* 固定底栏让位：footer 尾部不被 TabBar 遮挡（栏高 56 + safe-area；forum 壳无 TabBar 不让位） */
-  .app-shell:not(.forum-shell) {
-    padding-bottom: calc(56px + env(safe-area-inset-bottom));
+  /* 固定底栏让位：footer 尾部不被 TabBar 遮挡（forum 壳、hideTabBar 页无 TabBar 不让位） */
+  .app-shell:not(.forum-shell):not(.no-tabbar) {
+    padding-bottom: var(--tabbar-h-safe);
   }
 }
 

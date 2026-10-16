@@ -22,7 +22,7 @@
 .uw-aside-toggle,
 .btn,
 .tag-chip {
-  transition: transform var(--b-dur) var(--b-ease), box-shadow var(--b-dur) var(--b-ease);
+  transition: transform var(--b-dur) var(--b-ease), translate var(--b-dur) var(--b-ease), box-shadow var(--b-dur) var(--b-ease);
 }
 /* 法则 01：按下必须"压扁进表面"，位移量等于阴影偏移（--sh-off 单源，@720 自动减半；
    uw-type 压平位移=--sh-off-uw 3px 具名档——T15 归一：P2-4『非档位字面暂留』清偿，不随 @720 减半=原字面行为） */
@@ -30,7 +30,7 @@
 
 .dv-rail:active,
 .dv-collapse:active,
-.uw-edit:active { transform: translate(var(--sh-off-sm)); box-shadow: none; }
+.uw-edit:active { translate: var(--sh-off-sm); box-shadow: none; } /* 独立 translate 属性：translate() 函数不接受空格分隔的 --sh-off-* */
 /* 法则 04：卡片 hover 阴影变大并换彩色，背景硬切（无渐变、无淡入） */
 /* 2026-09 微交互统一：`.ac-card:hover` 与 `.uw-type:hover` 两条**已删** ——
    它们在 admin-shell.css / upload-wizard.css 里各有一份同名规则，按 index.css 导入顺序
@@ -145,6 +145,9 @@
   animation: b-stamp-lite var(--b-dur-page) var(--b-ease-stamp) both;
 }
 .page-leave-active { transition: none; } /* 旧页 0ms 硬切消失 */
+/* 登场期间页面根带 transform，会成为页内 position:fixed 后代的包含块：常驻浮动件先按页面坐标画一段，
+   结束时再跳回视口（论坛斜角 Tab 实测 top 705 → 235）。页内常驻的 fixed 件挂 .page-float，登场期间不画 */
+.page-enter-active .page-float { visibility: hidden; }
 .page-enter-from,
 .page-leave-to {
   opacity: 1;

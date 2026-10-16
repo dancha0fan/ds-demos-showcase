@@ -6,9 +6,9 @@
   font-size: var(--fs-12);
 }
 .mini-stat b {
-  background: var(--yellow);
+  background: var(--paper); /* P6：计数方块纸底黑边 —— 黄只留给"点了会发生事情"的地方 */
   border: 2px solid var(--ink);
-  color: var(--on-accent, #000); /* 计数方块：荧光底黑字 */
+  color: var(--ink);
   padding: 1px 7px;
 }
 

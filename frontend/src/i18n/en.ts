@@ -157,6 +157,7 @@ export const en = {
   ],
 
   demos: {
+    eyebrow: 'AI web demos',
     sub: 'Search, filter and browse every AI web demo — by tags and popularity.',
     works: 'works',
     normal: 'Normal',
@@ -425,7 +426,7 @@ export const en = {
   },
 
   public: {
-    eyebrow: 'Public',
+    title: 'Public',
     sub: 'Everything uploaded by unregistered users (including AI agents), collected in one place.',
     empty: 'No public uploads yet',
   },
@@ -468,7 +469,8 @@ export const en = {
   },
 
   about: {
-    eyebrow: 'About',
+    eyebrow: 'Site',
+    title: 'About',
     heroSub: 'A collection of AI-generated web demos — every work ships with its generation session logs and version timeline. Fully transparent.',
     snapshot: 'Site snapshot',
     demos: ' demos',
@@ -510,6 +512,7 @@ export const en = {
     favOff: '☆ Save',
     favAddTo: 'Add to collection ▾',
     loading: 'Loading demo…',
+    backToLib: 'Back to the library',
     author: 'Author',
     created: 'Created',
     views: 'Views',
@@ -597,6 +600,8 @@ export const en = {
     barExternal: 'External',
     barRate: 'Rate',
     barDiscuss: 'Discuss',
+    barBack: 'Back',
+    barLabel: 'Demo actions',
   },
 
   tagtip: {
@@ -605,11 +610,15 @@ export const en = {
 
   card: {
     sampleLow: 'Low sample',
+    noPrompt: 'No prompt',
   },
 
   copy: {
     copy: 'Copy',
     done: 'Copied',
+    promptTitle: 'Copy prompt',
+    promptDone: 'Prompt copied',
+    failed: 'Copy failed — please select the text and copy it manually',
   },
 
   acc: {

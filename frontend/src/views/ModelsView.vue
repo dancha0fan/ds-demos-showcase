@@ -8,6 +8,7 @@ import type { ModelSummary } from '../api/types'
 import { tagLabel } from '../utils/funMode'
 import { entityStatusClass } from '../utils/modelDisplay'
 import { iconInkFor, vendorIcon } from '../utils/vendorIcon'
+import { isImeComposing } from '../utils/ime'
 import { t } from '../i18n'
 import PaginationBar from '../components/PaginationBar.vue'
 import LoadingRow from '../components/LoadingRow.vue'
@@ -74,7 +75,7 @@ onMounted(load)
           class="input"
           type="search"
           :placeholder="t('models.searchPh', '搜索模型 / 别名…（回车提交）')"
-          @keyup.enter="apply"
+          @keydown.enter="!isImeComposing($event) && apply()"
         />
         <button class="btn btn-secondary search-submit" type="button" @click="apply">{{ t('common.search', '搜索') }}</button>
       </div>

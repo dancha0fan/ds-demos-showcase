@@ -54,8 +54,8 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="route-page">  <PageHero>
-    <span class="eyebrow">{{ t('about.eyebrow', '关于本站') }}</span>
-    <h1 class="page-title">{{ t('about.eyebrow', '关于本站') }}</h1>
+    <span class="eyebrow">{{ t('about.eyebrow', '站点') }}</span>
+    <h1 class="page-title">{{ t('about.title', '关于本站') }}</h1>
     <p class="sub">{{ t('about.heroSub', '一个由 AI 模型生成的网页 Demo 作品集 —— 每个作品都附带生成会话日志与版本时间线，过程全透明。') }}</p>
   </PageHero>
 

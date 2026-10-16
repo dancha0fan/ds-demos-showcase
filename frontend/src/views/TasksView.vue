@@ -6,6 +6,7 @@ import { onMounted, ref } from 'vue'
 import { api } from '../api'
 import type { TaskSummary } from '../api/types'
 import { parseDate, currentLocale } from '../utils/time'
+import { isImeComposing } from '../utils/ime'
 import { t } from '../i18n'
 import EntityStamp from '../components/EntityStamp.vue'
 import PaginationBar from '../components/PaginationBar.vue'
@@ -55,7 +56,7 @@ onMounted(load)
           class="input"
           type="search"
           :placeholder="t('tasks.searchPh', '搜索题目…（回车提交）')"
-          @keyup.enter="apply"
+          @keydown.enter="!isImeComposing($event) && apply()"
         />
         <button class="btn btn-secondary search-submit" type="button" @click="apply">{{ t('common.search', '搜索') }}</button>
       </div>

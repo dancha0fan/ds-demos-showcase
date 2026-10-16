@@ -16,6 +16,7 @@ import AnnouncementModal from '../components/AnnouncementModal.vue'
 import MasonryGrid from '../components/MasonryGrid.vue'
 import LoadMore from '../components/LoadMore.vue'
 import CoverImg from '../components/CoverImg.vue'
+import EmptyBox from '../components/EmptyBox.vue'
 
 // 整活模式：大标题/灰测区文案随全站开关切换
 const funOn = funEffective
@@ -28,8 +29,9 @@ const featuredBusy = ref(false)
 const curated = ref(false)
 const grayTest = ref<DemoSummary[]>([])
 const announcements = ref<Announcement[]>([])
-const totalDemos = ref(0)
-const totalTags = ref(0)
+/** null = 计数源还没回来或失败：显示 —，不显示会被当真的 0 */
+const totalDemos = ref<number | null>(null)
+const totalTags = ref<number | null>(null)
 const loading = ref(true)
 const error = ref('')
 
@@ -87,11 +89,11 @@ const taglinePool = computed(() => tArr('taglines', taglinePhrases))
 // RF-4h：打字机时序抽到 useTypewriter（可单测）；节奏参数即原来的 42/18/2600
 const { text: tagline } = useTypewriter(taglinePool)
 
-/** 原地 Fisher-Yates 洗牌，返回新数组 */
+/** Fisher-Yates 洗牌，返回新数组（j 必须取自 [0, i]：取自整段会让排列分布不均） */
 function shuffle<T>(arr: T[]): T[] {
   const a = arr.slice()
   for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * a.length)
+    const j = Math.floor(Math.random() * (i + 1))
     ;[a[i], a[j]] = [a[j], a[i]]
   }
   return a
@@ -116,7 +118,19 @@ async function loadFeatured() {
   const f = await api.listDemos({ status: 'approved', sort: 'random', page: 1, page_size: 24 })
   featuredPool.value = f.items
   featured.value = shuffle(f.items).slice(0, 6)
-  totalDemos.value = f.total
+  if (!content.value) totalDemos.value = f.total // 计数真源是 site-info，它缺席时才用这个
+}
+
+async function retryFeatured() {
+  error.value = ''
+  loading.value = true
+  try {
+    await loadFeatured()
+  } catch (e) {
+    error.value = (e as Error).message
+  } finally {
+    loading.value = false
+  }
 }
 
 async function shuffleFeatured() {
@@ -190,8 +204,16 @@ const forumEntering = ref(false)
 // RF-2：这个 500ms 过渡定时器原先没保存 id —— 在它触发前切走路由/关页，
 // 回调仍会 router.push('/forum')，把用户的导航意图抢掉。现在可取消。
 let forumTimer: ReturnType<typeof setTimeout> | null = null
-function enterForum() {
+function enterForum(e: MouseEvent) {
+  // 修饰键点击（新标签/新窗口/下载）交给浏览器按普通链接处理；中键不触发 click
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+  e.preventDefault()
   if (forumEntering.value) return
+  // 减弱动效：飞入接管整段退场，没有理由再让人干等 500ms
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    void router.push('/forum')
+    return
+  }
   forumEntering.value = true
   forumTimer = setTimeout(() => {
     forumTimer = null
@@ -259,24 +281,30 @@ async function loadMoreLatest() {
 const { queues, totalMust } = useQueues()
 
 onMounted(async () => {
-  try {
-    const [g, a, info] = await Promise.all([
-      api.listDemos({ status: 'approved', tags: [GRAY_TAG], page: 1, page_size: 6 }),
-      api.listAnnouncements(),
-      api.getSiteInfo(),
-    ])
-    grayTest.value = g.items
-    // 计数器走 /meta/site-info（60s 缓存），替代原来的 tag-keys 全量拉取
-    content.value = info.content
-    totalTags.value = info.content.tags.values
-    totalDemos.value = info.content.demos_total
-    announcements.value = a
-    await loadFeatured()
-  } catch (e) {
+  // 精选（含 hero 主件 = 首屏最大元素）立即发，不排在计数/公告/灰测之后；
+  // 四路各自容错：任何一路失败只影响自己那一块，不再整块拖垮精选区
+  const featuredDone = loadFeatured().catch((e) => {
     error.value = (e as Error).message
-  } finally {
-    loading.value = false
-  }
+  })
+  api
+    .listDemos({ status: 'approved', tags: [GRAY_TAG], page: 1, page_size: 6 })
+    .then((g) => (grayTest.value = g.items))
+    .catch(() => undefined)
+  api
+    .listAnnouncements()
+    .then((a) => (announcements.value = a))
+    .catch(() => undefined)
+  // 计数器走 /meta/site-info（60s 缓存），替代原来的 tag-keys 全量拉取
+  api
+    .getSiteInfo()
+    .then((info) => {
+      content.value = info.content
+      totalTags.value = info.content.tags.values
+      totalDemos.value = info.content.demos_total
+    })
+    .catch(() => undefined)
+  await featuredDone
+  loading.value = false
   // 侧栏三路轻量并发（热帖/双榜）；失败静默——侧栏是增强不是关键路径
   api
     .listForumTopics({ sort: 'hot', page_size: 3 })
@@ -343,9 +371,9 @@ onBeforeUnmount(() => {
         </p>
         <!-- 数字条（05 §2.1：mono tabular-nums + 竖分隔线；第四段=实时在线，站点活着信号） -->
         <div class="hero-numstrip mono">
-          <span class="hn"><b>{{ totalDemos }}</b> {{ t('home.demos', 'Demo') }}</span>
+          <span class="hn"><b>{{ totalDemos ?? '—' }}</b> {{ t('home.demos', 'Demo') }}</span>
           <span class="hn-div" aria-hidden="true"></span>
-          <span class="hn"><b>{{ totalTags }}</b> {{ t('home.tags', '标签值') }}</span>
+          <span class="hn"><b>{{ totalTags ?? '—' }}</b> {{ t('home.tags', '标签值') }}</span>
           <span class="hn-div" aria-hidden="true"></span>
           <span class="hn"><b>{{ content?.uploads_last_7d ?? '—' }}</b> {{ t('home.strip.up7d', '近 7 天') }}</span>
           <span class="hn-div" aria-hidden="true"></span>
@@ -362,7 +390,7 @@ onBeforeUnmount(() => {
       </div>
       <!-- 精选主件（右列视觉门面）：静态首件大卡；轮播动态化 P3 -->
       <div class="hub-hero-right">
-        <RouterLink v-if="featuredHero" class="hero-feature" :to="`/demo/${featuredHero.slug}`">
+        <RouterLink v-if="featuredHero" class="hero-feature b-lift" :to="`/demo/${featuredHero.slug}`">
           <CoverImg v-if="featuredHero.cover_url" class="hero-feature-img" :src="featuredHero.cover_url" tier="full" eager :alt="featuredHero.title" />
           <div v-else class="hero-feature-ph"><span>{{ featuredHero.title }}</span></div>
           <div class="hero-feature-meta">
@@ -371,6 +399,10 @@ onBeforeUnmount(() => {
             <span v-if="featuredHero.rating_avg != null" class="mono hero-feature-score">★{{ Number(featuredHero.rating_avg).toFixed(1) }}</span>
           </div>
         </RouterLink>
+        <div v-else-if="loading" class="hero-feature hero-feature--ph" aria-hidden="true">
+          <div class="hero-feature-ph"></div>
+          <div class="hero-feature-meta"></div>
+        </div>
       </div>
     </div>
 
@@ -403,8 +435,9 @@ onBeforeUnmount(() => {
         </div>
         <!-- 策展透明口径行（03 §3.2 / 07 §2.2）：策展态=管理员精选按序展示；随机回落态=已上架全量随机 60s 同批 -->
         <p class="muted caliber-line">{{ curated ? t('home.curatedCaliber', '本期由管理员精选，按编排顺序展示') : t('home.shuffleCaliber', '换池口径：已上架作品全量随机，60 秒内同一批') }}</p>
-        <div v-if="error" class="notice notice-error">{{ error }}</div>
         <div v-if="loading" class="loading-row"><span class="spinner"></span> {{ t('home.loading', '加载精选…') }}</div>
+        <!-- 失败与"真没作品"分开：否则错误条下面还挂着「来投第一篇稿吧」 -->
+        <EmptyBox v-else-if="error" kind="error" :text="error" @retry="retryFeatured" />
         <div v-else-if="!featuredGrid.length && !curated" class="empty-box">{{ t('home.empty', '还没有 Demo，来投第一篇稿吧。') }}</div>
         <!-- 策展单件态（仅 hero 无网格）不显示空盒文案——hero 已在上方展示该件 -->
         <MasonryGrid v-else-if="featuredGrid.length" :cols="3" :items="featuredGrid" :item-key="(d: unknown) => (d as DemoSummary).slug">
@@ -519,7 +552,7 @@ onBeforeUnmount(() => {
 
   <!-- 论坛斜角入口（T9 逐字恢复自 52421e5~1 原件，M1-2 移除；标记/脚本/样式三处均照原）
        样式=forum.css .forum-peek（dormant 存活至今，逐字核对一致），飞入接管=forum-takeover -->
-  <button class="b-lift forum-peek" type="button" @click="enterForum">{{ t('home.forum', '论坛 →') }}</button>
+  <a class="b-lift forum-peek page-float" href="/forum" @click="enterForum">{{ t('home.forum', '论坛 →') }}</a>
   <Transition name="forum-takeover">
     <div v-if="forumEntering" class="forum-takeover">
       <span class="forum-takeover-brand">讨论区</span>
@@ -634,6 +667,8 @@ onBeforeUnmount(() => {
   font-variant-numeric: tabular-nums;
 }
 .hero-numstrip .hn {
+  flex: none; /* 不许被压窄：「近 7 天」会折成三行 */
+  white-space: nowrap;
   font-size: var(--fs-15);
 }
 .hero-numstrip .hn b {
@@ -675,10 +710,20 @@ onBeforeUnmount(() => {
   text-decoration: none;
   color: var(--ink, #000);
   border: var(--border-w, 4px) solid var(--ink, #000);
-  box-shadow: 8px 8px 0 0 rgba(0, 0, 0, 1);
   background: var(--paper, #fff);
-  transition: transform var(--b-dur, 150ms) var(--b-ease, cubic-bezier(0, 0, 0.2, 1)),
-    box-shadow var(--b-dur, 150ms) var(--b-ease, cubic-bezier(0, 0, 0.2, 1));
+  /* 物理走 .b-lift：8px 档，hover ×1.5，按下位移 = 影偏移（Rule 01）。
+     这里**不能**再写 box-shadow：scoped 规则排在 lift.css 之后、特异度与库的 :hover/:active 相同，
+     会把 hover 增影与按下清影一起盖掉；静止影由库的 box-shadow: var(--lift-sh) 给出 */
+  --lift-sh: var(--sh-off-xl) 0 0 var(--ink, #000);
+  --lift-sh-hover: var(--sh-off-hov-xl) 0 0 var(--ink, #000);
+  --lift-flat: var(--sh-off-xl);
+}
+/* 精选还没到：同尺寸占位，防止主件晚到时把左列整体顶起（.hub-hero 底对齐） */
+.hero-feature--ph {
+  border-style: dashed;
+}
+.hero-feature--ph .hero-feature-meta {
+  min-height: 46px;
 }
 .hero-feature-img {
   display: block;
@@ -720,17 +765,6 @@ onBeforeUnmount(() => {
   border: 2px solid var(--ink, #000);
   background: var(--mint, #95e1d3);
   color: var(--on-accent, #000);
-}
-@media (hover: hover) {
-  .hero-feature:hover {
-    transform: translate(-2px, -2px);
-    box-shadow: 10px 10px 0 0 rgba(0, 0, 0, 1);
-  }
-}
-.hero-feature:active {
-  transform: translate(4px, 4px);
-  box-shadow: none;
-  transition-duration: 0ms;
 }
 /* 站点导航条带（05 §2.1）：01-05 编号+名称+计数，border-r 2px 分隔，hover 反色=ink 底 paper 字（btn-dark 词汇） */
 .site-strip {
@@ -804,16 +838,15 @@ onBeforeUnmount(() => {
     overflow-x: auto;
     flex-wrap: nowrap;
   }
+  .hero-numstrip {
+    gap: var(--sp-8);
+  }
+  .hero-numstrip .hn,
+  .hero-numstrip .hn b {
+    font-size: var(--fs-14);
+  }
   .page-hero .huge {
     margin-top: var(--sp-8); /* t20 375 目验：eyebrow 章阴影压标题首行，分离一档 */
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .hero-feature {
-    transition: none;
-  }
-  .hero-feature:active {
-    transform: none;
   }
 }
 /* ============================================================

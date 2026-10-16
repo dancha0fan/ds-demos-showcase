@@ -7,6 +7,7 @@ import { useSelectedTags } from '../composables/useSelectedTags'
 import TagTip from './TagTip.vue'
 import type { TagKeyInfo, TagKeyValue } from '../api/types'
 import { tagLabel } from '../utils/funMode'
+import { isImeComposing } from '../utils/ime'
 
 export interface TagPick {
   key: string
@@ -334,8 +335,8 @@ onMounted(async () => {
             <template v-else-if="activeTagKey.mode === 'open'">
               <div class="form-stack">
                 <div class="filter-row" style="margin: 0">
-                  <input v-model="inputs[activeTagKey.key].value" class="input" type="text" placeholder="自定义值，如 pvz" style="max-width: 180px" @keyup.enter="addValue(activeTagKey.key)" @input="tagErrors[activeTagKey.key] = ''" />
-                  <input v-model="inputs[activeTagKey.key].description" class="input" type="text" placeholder="介绍（可选）" style="max-width: 180px" @keyup.enter="addValue(activeTagKey.key)" />
+                  <input v-model="inputs[activeTagKey.key].value" class="input" type="text" placeholder="自定义值，如 pvz" style="max-width: 180px" @keydown.enter="!isImeComposing($event) && addValue(activeTagKey.key)" @input="tagErrors[activeTagKey.key] = ''" />
+                  <input v-model="inputs[activeTagKey.key].description" class="input" type="text" placeholder="介绍（可选）" style="max-width: 180px" @keydown.enter="!isImeComposing($event) && addValue(activeTagKey.key)" />
                   <button class="btn btn-sm btn-secondary" type="button" @click="addValue(activeTagKey.key)">添加</button>
                 </div>
                 <div v-if="activeTagKey.values.length" class="tag-suggest-block">
@@ -353,7 +354,7 @@ onMounted(async () => {
             <template v-else>
               <div class="form-stack">
                 <div class="filter-row" style="margin: 0">
-                  <input v-model="inputs[activeTagKey.key].value" class="input" type="number" :placeholder="`整数，如 ${activeTagKey.min ?? 0}~${activeTagKey.max ?? 999}`" style="max-width: 180px" @keyup.enter="addValue(activeTagKey.key)" @input="tagErrors[activeTagKey.key] = ''" />
+                  <input v-model="inputs[activeTagKey.key].value" class="input" type="number" :placeholder="`整数，如 ${activeTagKey.min ?? 0}~${activeTagKey.max ?? 999}`" style="max-width: 180px" @keydown.enter="!isImeComposing($event) && addValue(activeTagKey.key)" @input="tagErrors[activeTagKey.key] = ''" />
                   <button class="btn btn-sm btn-secondary" type="button" @click="addValue(activeTagKey.key)">添加</button>
                 </div>
                 <div v-if="activeTagKey.values.length" class="tag-suggest-block">

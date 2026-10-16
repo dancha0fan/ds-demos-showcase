@@ -97,11 +97,16 @@ describe('布局令牌', () => {
     expect(read('src/styles/tokens/primitives.css')).toContain('--tabbar-h-safe')
   })
 
-  it('页内贴底浮层不许再抢底栏的位置（P1 底栏契约）', () => {
-    // 常驻贴底条：bottom 必须走 --tabbar-h-safe（就位于底栏之上）
+  it('页内贴底条与底栏不叠放（P1 底栏契约）', () => {
+    // 作品详情不挂全站底栏：路由 meta.hideTabBar → App 不渲染底栏、壳层不让位；
+    // 动作条因此贴底并自垫安全区（两条叠放曾占掉 844 高手机屏约 130px）
+    expect(read('src/router/routes.ts')).toMatch(/name: 'demo',[^\n]*hideTabBar: true/)
+    const app = readNoComments('src/App.vue')
+    expect(app).toMatch(/<AppTabBar v-if="[^"]*!route\.meta\.hideTabBar/)
+    expect(app).toMatch(/\.app-shell:not\(\.forum-shell\):not\(\.no-tabbar\)/)
     const demo = readNoComments('src/views/DemoView.vue')
-    expect(demo).toMatch(/\.dv-mbar\s*\{[^}]*bottom:[^;]*var\(--tabbar-h-safe\)/s)
-    expect(demo).not.toMatch(/\.dv-mbar\s*\{[^}]*bottom:\s*0/s)
+    expect(demo).toMatch(/\.dv-mbar\s*\{[^}]*bottom:\s*0;[^}]*padding-bottom:\s*env\(safe-area-inset-bottom/s)
+    expect(demo).not.toContain('--tabbar-h-safe')
     // 模态浮层：z-index 必须高于底栏（压过它），而不是被它盖住
     const demos = readNoComments('src/views/DemosView.vue')
     expect(demos).toMatch(/\.facet-panel--sheet\s*\{[^}]*z-index:\s*var\(--z-sheet\)/s)

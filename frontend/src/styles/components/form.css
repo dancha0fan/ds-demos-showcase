@@ -4,7 +4,7 @@
   padding: var(--sp-12) var(--sp-14);
   border: var(--border-w) solid var(--ink);
   border-radius: 0;
-  background: var(--wash-yellow);
+  background: var(--paper); /* P6：黄只给行动——静止输入框纸底，聚焦时才上黄（硬切，不进 transition） */
   color: var(--ink);
   font-family: var(--font-body);
   font-size: var(--fs-14);
@@ -15,6 +15,7 @@
   color: var(--ink-soft);
 }
 .input:focus {
+  background: var(--wash-yellow);
   box-shadow: var(--shadow-black);
   transform: translate(-2px, -2px);
 }

@@ -12,7 +12,7 @@ export const routes: RouteRecordRaw[] = [
   // 独立预览页（P2）：无站点外壳（meta.bare）、一个键都不绑 —— 键盘全交给作品。
   // 放在 /demo/:slug 之前；props 传 slug；不 keepAlive（每次进来都该是干净的一次预览）。
   { path: '/demo/:slug/play', name: 'demo-play', component: () => import('../views/DemoPlayView.vue'), props: true, meta: { title: '预览', bare: true } },
-  { path: '/demo/:slug', name: 'demo', component: () => import('../views/DemoView.vue'), props: true, meta: { title: 'Demo' } },
+  { path: '/demo/:slug', name: 'demo', component: () => import('../views/DemoView.vue'), props: true, meta: { title: 'Demo', hideTabBar: true } },
   { path: '/models', name: 'models', component: () => import('../views/ModelsView.vue'), meta: { title: '模型', keepAlive: true, wide: true } },
   { path: '/models/:slug', name: 'model-detail', component: () => import('../views/ModelDetailView.vue'), props: true, meta: { title: '模型' } },
   { path: '/tasks', name: 'tasks', component: () => import('../views/TasksView.vue'), meta: { title: '题目', keepAlive: true, wide: true } },

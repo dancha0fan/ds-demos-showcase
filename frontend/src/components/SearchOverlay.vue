@@ -13,6 +13,7 @@ import { api } from '../api'
 import type { DemoSummary, ModelSummary, TaskSummary } from '../api/types'
 import { closeSearch, openSearch, searchOpen } from '../composables/useSearch'
 import { t } from '../i18n'
+import { isImeComposing } from '../utils/ime'
 import { modelDisplay } from '../utils/modelDisplay'
 
 type Group = 'demos' | 'models' | 'tasks'
@@ -129,7 +130,9 @@ async function run() {
   if (!keyword) return
   searching.value = true
   hasSearched.value = true
-  resetResults()
+  // 旧结果留在屏上直到新结果到达（逐字输入时整块清空→转圈→重排会闪）；
+  // 但取消预选：在途期间按 ↵ 走「作品库搜当前词」，而不是跳进上一个词的第一条
+  activeIdx.value = -1
   const [d, m, k] = await Promise.allSettled([
     api.listDemos({ q: keyword, page: 1, page_size: 5 }),
     api.listModels({ q: keyword, page: 1, page_size: 5 }),
@@ -163,6 +166,7 @@ function go(row: SearchRow | null) {
 }
 
 function onInputKey(e: KeyboardEvent) {
+  if (isImeComposing(e)) return // 选词用的 ↵ / ↑↓ / Esc 归输入法
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault()
     const n = rows.value.length
@@ -201,6 +205,7 @@ function onTrapKey(e: KeyboardEvent) {
 
 // 全局键：⌘K/Ctrl K 常开；`/` 快捷键（输入焦点内不抢）；Esc 关闭（M2 命令面板 §12.2 的入口预埋）
 function onWinKey(e: KeyboardEvent) {
+  if (isImeComposing(e)) return
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
     e.preventDefault()
     if (!searchOpen.value) openSearch()
@@ -270,7 +275,8 @@ onBeforeUnmount(() => {
     >
       <div class="so-panel">
         <div class="so-input-row">
-          <svg class="so-ico" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <span v-if="searching && anyResult" class="spinner so-ico" aria-hidden="true"></span>
+          <svg v-else class="so-ico" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
             <circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.4" />
             <path d="M15.5 15.5 21 21" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" />
           </svg>
@@ -294,11 +300,11 @@ onBeforeUnmount(() => {
           <button class="so-close" type="button" :aria-label="t('common.close', '关闭')" :title="t('search.closeTip', '关闭（Esc）')" @click="closeSearch">✕</button>
         </div>
 
-        <div id="so-listbox" class="so-body" aria-live="polite">
+        <div id="so-listbox" class="so-body" aria-live="polite" :aria-busy="searching">
           <span class="so-sr" role="status">{{ rows.length ? t('search.resultCount', '{n} 条结果', { n: rows.length }) : '' }}</span>
 
-          <!-- 加载：三域并行，单 spinner -->
-          <div v-if="searching" class="loading-row"><span class="spinner"></span> {{ t('search.searching', '搜索中…') }}</div>
+          <!-- 加载：三域并行，单 spinner（已有结果时留在屏上，转圈挪到输入框左侧） -->
+          <div v-if="searching && !anyResult" class="loading-row"><span class="spinner"></span> {{ t('search.searching', '搜索中…') }}</div>
 
           <!-- 错误（三域全挂）：诚实报错 + 重试 -->
           <template v-else-if="allFailed">

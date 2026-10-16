@@ -2,8 +2,11 @@
   box-sizing: border-box;
 }
 
-html {
-  scroll-behavior: smooth;
+/* 平滑滚动只给没要求减弱动效的人：全局 reduced-motion 闸只压 animation/transition，压不到 scroll-behavior */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
 }
 
 body {

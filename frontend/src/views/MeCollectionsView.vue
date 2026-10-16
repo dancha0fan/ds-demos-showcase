@@ -9,6 +9,7 @@ import EmptyBox from '../components/EmptyBox.vue'
 import CopyButton from '../components/CopyButton.vue'
 import { t } from '../i18n'
 import { errorMessage } from '../utils/error'
+import { isImeComposing } from '../utils/ime'
 import CoverImg from '../components/CoverImg.vue'
 
 /**
@@ -159,8 +160,8 @@ function shareLink(c: CollectionOut): string {
             class="input"
             :placeholder="t('fav.namePlaceholder', '收藏夹名称')"
             maxlength="60"
-            @keydown.enter.prevent="create"
-            @keydown.esc="creating = false"
+            @keydown.enter="!isImeComposing($event) && create()"
+            @keydown.esc="!isImeComposing($event) && (creating = false)"
           />
           <button class="btn btn-sm btn-outline" type="button" @click="newVisibility = newVisibility === 'public' ? 'private' : 'public'">
             {{ newVisibility === 'public' ? t('fav.public', '公开') : t('fav.private', '私密') }}
@@ -190,7 +191,7 @@ function shareLink(c: CollectionOut): string {
 
           <div class="me-row-main">
             <template v-if="editingId === c.id">
-              <input v-model="draftTitle" class="input" maxlength="60" @keydown.enter.prevent="saveRename(c)" @keydown.esc="editingId = null" />
+              <input v-model="draftTitle" class="input" maxlength="60" @keydown.enter="!isImeComposing($event) && saveRename(c)" @keydown.esc="!isImeComposing($event) && (editingId = null)" />
             </template>
             <template v-else>
               <RouterLink class="me-row-title" :to="`/me/collections/${c.id}`">{{ c.title }}</RouterLink>

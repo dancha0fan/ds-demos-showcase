@@ -160,10 +160,10 @@
   /* ---------- 底栏高度与占位（P1「底栏契约」的数据源） ----------
      现状：56px 硬编码在 AppTabBar.vue，页内 fixed 条各自 bottom:0 → 移动端
      作品详情动作条与筛选 sheet 被底栏压住（实测：两者 top/bottom 完全重合）。
-     P1 起，页内贴底条一律 bottom: var(--tabbar-h-safe)。 */
-  --tabbar-h: 56px;
+     P1 起，页内贴底条一律 bottom: var(--tabbar-h-safe)；不挂底栏的路由（meta.hideTabBar）贴底条自己 bottom:0。 */
+  --tabbar-h: 56px; /* 只是底栏内容区高，不含上边框与安全区；页面让位/贴底条请用 --tabbar-h-safe */
   --tabbar-h-safe: calc(56px + var(--border-w) + env(safe-area-inset-bottom, 0px));
-  --mbar-h: 58px; /* 作品详情移动动作条：按钮 56 + 上边框 2（已在底栏之上，不再吃安全区） */
+  --mbar-h: 58px; /* 作品详情移动动作条：按钮 56 + 上边框 2；该页不挂底栏，动作条贴底，安全区另垫 */
   /* 底栏中央 FAB 上探量：.fab 56×56 + margin-top:-16px → 实测越过底栏上缘 14px。
      页内贴底条还要再抬这么多，否则中央那颗按钮被 FAB 圆钮咬掉 14px（实测命中 SPAN.fab-glyph）。 */
   --tabbar-fab-overhang: 14px;
