@@ -73,26 +73,44 @@ def _related_cache_set(key: str, result: list) -> None:
         _RELATED_CACHE[key] = (time.time() + _RANDOM_TTL_REL, result)
 
 
-def _random_ids(db, page: int, page_size: int, scope: str) -> list[int]:
-    """返回一次随机序下的 [offset, offset+page_size) 的已上架 demo id（60s 缓存整份随机序）。
-    按视区分键：astra 橱窗只随机策展池。锁只护缓存；DB 查询在锁外执行（复用请求会话）。"""
-    with _CACHE_LOCK:
-        hit = _RANDOM_CACHE.get(scope)
-        ids = list(hit[1]) if hit and hit[0] > time.time() else None
-    if ids is None:
-        # 锁外：用请求会话查库 + 洗牌
+def _random_ids(db, page: int, page_size: int, scope: str, rs: str | None = None) -> tuple[list[int], str]:
+    """返回一次随机序下的 [offset, offset+page_size) 的已上架 demo id 及其种子。
+
+    - rs（会话固定种子）：确定性洗牌、无视时间桶 —— 同一种子跨请求/跨 60s 桶顺序恒同，
+      翻页不重复不漏件（这是漏项的根修；前端去重只能遮重复）。
+    - 无 rs：保持旧行为（60s 缓存整份随机序，按视区分键），但洗牌改用「生成并随缓存保存
+      的种子」，响应把该种子回传，客户端可选择 pin 住 —— 缓存过期后回传种子仍能续上原序。
+    按视区分键：astra 橱窗只随机策展池。锁只护缓存；DB 查询在锁外执行（复用请求会话）。
+    """
+    if rs is not None:
         live_ids = [
             d
             for (d,) in db.query(Demo.id).filter(Demo.status == "approved", scope_contains_filter(scope)).all()
         ]
-        random.shuffle(live_ids)
+        random.Random(f"{scope}|rs|{rs}").shuffle(live_ids)
+        start = (page - 1) * page_size
+        return live_ids[start : start + page_size], rs
+    with _CACHE_LOCK:
+        hit = _RANDOM_CACHE.get(scope)
+        ids = list(hit[1]) if hit and hit[0] > time.time() else None
+        seed = hit[2] if ids is not None else None
+    if ids is None:
+        # 锁外：用请求会话查库 + 洗牌（种子随缓存保存，seedless 响应也能回传可续的种子）
+        seed = uuid.uuid4().hex
+        live_ids = [
+            d
+            for (d,) in db.query(Demo.id).filter(Demo.status == "approved", scope_contains_filter(scope)).all()
+        ]
+        random.Random(f"{scope}|rs|{seed}").shuffle(live_ids)
         with _CACHE_LOCK:
             hit = _RANDOM_CACHE.get(scope)
             if not hit or hit[0] <= time.time():
-                _RANDOM_CACHE[scope] = (time.time() + _RANDOM_TTL, live_ids)
+                _RANDOM_CACHE[scope] = (time.time() + _RANDOM_TTL, live_ids, seed)
+            else:
+                seed = hit[2]
             ids = live_ids
     start = (page - 1) * page_size
-    return ids[start : start + page_size]
+    return ids[start : start + page_size], seed
 
 
 def _find_demo(db: Session, slug: str) -> Demo:
@@ -326,6 +344,10 @@ def list_demos(
     minutes: str | None = Query(default=None, description="生成耗时（分钟）：同上（v2 B5′）"),
     platform: str | None = Query(default=None, description="运行平台精确匹配（v2 B5′）"),
     sort: str = Query(default="newest", pattern="^(newest|popular|random|prompt)$"),
+    # 会话固定随机种子（sort=random 专用）：首响回传 random_seed，客户端翻页回传同一个值，
+    # 整段翻页都建立在同一次洗牌上 —— 跨 60s 时间桶也不重复不漏件（前端去重只能遮重复，
+    # 漏件必须靠顺序本身稳定）。不带 rs 的调用保持旧行为（响应仍回传当前有效种子，可选采纳）。
+    rs: str | None = Query(default=None, max_length=64, pattern=r"^[A-Za-z0-9_-]+$", description="sort=random 会话固定种子"),
     featured: int | None = Query(default=None, ge=0, le=1, description="首页策展池（07 §2.2）：featured=1 只出精选并按 featured_order 排序（hero=首件）"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
@@ -474,22 +496,26 @@ def list_demos(
         items = query.offset((page - 1) * page_size).limit(page_size).all()
     elif sort == "random":
         total = query.count()
+        random_seed = ""
         if has_filter:
             # 有实质过滤：必须对**过滤后**的 id 集合洗牌 —— 否则过滤条件被静默忽略，
             # 且 total（过滤后计数）与 items（全局池）不同源自相矛盾。
-            # 顺序用「scope + 过滤签名 + 60s 时间桶」播种：桶内翻页顺序稳定（与未过滤路径的
-            # 60s 缓存同语义，page=2 不会与 page=1 重复或漏件），且不引入无界缓存
-            # （过滤组合空间大，用签名字典缓存会长大）。
+            # 顺序种子：rs（会话固定）优先 —— 同一种子跨请求/跨 60s 桶顺序恒同，翻页不重复
+            # 不漏件；无 rs 用「scope + 过滤签名 + 60s 时间桶」（桶内稳定），并把桶号作为
+            # random_seed 回传 —— 客户端回传它即可钉住当前顺序（桶过期后仍能续上）。
+            # 不引入无界缓存（过滤组合空间大，用签名字典缓存会长大）。
             sig = repr((status, sorted(tag), q or "", author or "", model or "", task or "",
                         rounds or "", minutes or "", platform or ""))
+            random_seed = rs if rs else str(int(time.time() // _RANDOM_TTL))
             ids = [d for (d,) in query.with_entities(Demo.id).all()]
-            random.Random(f"{scope}|{sig}|{int(time.time() // _RANDOM_TTL)}").shuffle(ids)
+            random.Random(f"{scope}|{sig}|{random_seed}").shuffle(ids)
             start = (page - 1) * page_size
             ids = ids[start : start + page_size]
         else:
             # 无过滤：保持原有整批随机语义（60s 缓存整份随机 id 序，按视区分键，
-            # 避免每次 ORDER BY RANDOM() 全表扫）——首页「随便看看」行为不变。
-            ids = _random_ids(db, page, page_size, scope)
+            # 避免每次 ORDER BY RANDOM() 全表扫）——首页「随便看看」行为不变；
+            # rs 提供时绕过缓存直接确定性洗牌（翻页会话内稳定）。
+            ids, random_seed = _random_ids(db, page, page_size, scope, rs)
         if ids:
             items = db.query(Demo).filter(Demo.id.in_(ids)).all()
             order = {did: i for i, did in enumerate(ids)}
@@ -513,6 +539,8 @@ def list_demos(
         total=total,
         page=page,
         page_size=page_size,
+        # 只在 random 分支有意义；其他 sort 的 random_seed 恒 None（schema 默认）
+        random_seed=random_seed if sort == "random" else None,
     )
 
 

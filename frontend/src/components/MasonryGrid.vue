@@ -96,7 +96,11 @@ watch(
     if (firstKey === prevFirstKey && items.length > (prev?.length ?? 0)) {
       appendTail(items, prev?.length ?? 0)
     } else {
-      // 整体替换：重置首帧收敛标记，新列表就绪后重新收敛一次
+      // 整体替换：先清掉旧列表的高度缓存（按 key 索引，旧键不再有用，留着只会累积；
+      // 且若新列表恰好复用了同 key 但内容已换，陈旧高度会让首帧排布失真）
+      const keep = new Set(items.map((it, i) => keyOf(it, i)))
+      for (const k of [...heights.keys()]) if (!keep.has(k)) heights.delete(k)
+      // 重置首帧收敛标记，新列表就绪后重新收敛一次
       initialSettled = false
       rebuild(items)
       requestAnimationFrame(trySettleInitial)

@@ -36,9 +36,9 @@ describe('① 上传向导：image 类型', () => {
     expect(describe_).toContain("'web' | 'zip' | 'link' | 'image'")
   })
 
-  it('types.ts 三处联合类型均放行 image', () => {
+  it('types.ts 联合类型均放行 image（题目系统 v2 +1：TaskChainRow.demo_type 随行返回）', () => {
     const hits = types.match(/'web' \| 'zip' \| 'link' \| 'image'/g) ?? []
-    expect(hits.length).toBe(3)
+    expect(hits.length).toBe(4)
   })
 })
 

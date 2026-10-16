@@ -90,6 +90,17 @@ function togglePick(slug: string, e?: Event) {
 const pickedRows = computed(() => chainRows.value.filter((r) => pickSlugs.value.includes(r.slug)))
 const canCompare = computed(() => pickedRows.value.length >= 2)
 
+/** 并排看的比较语义徽章：image=看图；web/zip/link=看封面+点进作品（比较口径不同，必须显性化） */
+const DEMO_TYPE_LABELS: Record<string, string> = {
+  image: '图像',
+  web: '网页',
+  zip: '文件包',
+  link: '外链',
+}
+function typeLabel(dt: string) {
+  return DEMO_TYPE_LABELS[dt] ?? dt
+}
+
 /** 切换题目时清空选择，避免把上一题的 slug 带过来（选择是页面态，不属于题库实体） */
 watch(() => route.params.slug, () => { pickSlugs.value = [] })
 </script>
@@ -138,7 +149,13 @@ watch(() => route.params.slug, () => { pickSlugs.value = [] })
       <h2 class="section-title">{{ t('tasks.compareTitle', '按模型对比') }}</h2>
       <RouterLink class="btn btn-sm btn-primary" :to="`/upload?task=${task.slug}`">{{ t('tasks.challenge', '用你的模型挑战此题 →') }}</RouterLink>
     </div>
-    <div v-if="!task.compare.length" class="empty-box">{{ t('tasks.emptyCompare', '还没有模型参与此题，等更多模型来挑战 →') }}</div>
+    <div v-if="!task.compare.length" class="empty-box">
+      {{ t('tasks.emptyCompare', '还没有模型参与此题，等更多模型来挑战 →') }}
+      <!-- 零作品题目（独立出题刚批准时）：空态即入口，别让第一眼只有一句话 -->
+      <div class="filter-row" style="margin-top: var(--sp-10); justify-content: center">
+        <RouterLink class="btn btn-sm btn-primary" :to="`/upload?task=${task.slug}`">{{ t('tasks.challenge', '用你的模型挑战此题 →') }}</RouterLink>
+      </div>
+    </div>
     <div v-else class="compare-list">
       <div v-for="(row, i) in task.compare" :key="row.model.slug" class="compare-row card card-entity b-lift">
         <span class="compare-rank" :class="'rank-' + (i + 1)">{{ i + 1 }}</span>
@@ -180,7 +197,13 @@ watch(() => route.params.slug, () => { pickSlugs.value = [] })
         <span class="muted mono">{{ chainRows.length }} / {{ task.chain?.rows.length ?? 0 }}</span>
       </div>
     </div>
-    <div v-if="!chainRows.length" class="empty-box">{{ t('tasks.emptyDemos', '暂无作品') }}</div>
+    <div v-if="!chainRows.length" class="empty-box">
+      {{ t('tasks.emptyDemos', '暂无作品') }}
+      <!-- 零作品题目：证据表空态同样给挑战入口（自己或他人后续关联作品） -->
+      <div class="filter-row" style="margin-top: var(--sp-10); justify-content: center">
+        <RouterLink class="btn btn-sm btn-outline" :to="`/upload?task=${task.slug}`">{{ t('tasks.challenge', '用你的模型挑战此题 →') }}</RouterLink>
+      </div>
+    </div>
     <div v-else class="table-wrap">
       <table class="data chain-table">
         <thead>
@@ -262,6 +285,8 @@ watch(() => route.params.slug, () => { pickSlugs.value = [] })
             </div>
             <div class="sbs-meta">
               <RouterLink class="sbs-title" :to="`/demo/${r.slug}`">{{ r.title }}</RouterLink>
+              <!-- 比较语义显性化：图像作品=看图，代码作品=看封面+点进作品跑 -->
+              <span v-if="r.demo_type" class="sbs-type" :class="'sbs-type--' + r.demo_type">{{ typeLabel(r.demo_type) }}</span>
               <div v-if="r.models.length" class="sbs-models">
                 <RouterLink v-for="m in r.models" :key="m.slug" class="chain-model" :to="`/models/${m.slug}`">
                   {{ tagLabel(m.name) }}

@@ -229,12 +229,28 @@ export interface TaskSuggestItem {
   score: number
 }
 
+/** 独立出题（不依赖上传作品）：提交后进待审收件箱，管理员批准才公开 */
+export interface TaskProposalIn {
+  title: string
+  description?: string
+  category?: string | null
+}
+
+export interface TaskProposalOut {
+  status: 'pending'
+  suggestion_id: number
+  /** true = 同一用户已提交过同题名提案，本次幂等返回不堆箱 */
+  duplicate: boolean
+}
+
 /** 证据表的一行 = 一件作品；列即链条环节（模型 → 题面 → 生成过程 → 评分） */
 export interface TaskChainRow {
   slug: string
   title: string
   /** 并排看图片 URL（该作品 cover_url，可能是 webp 或外链） */
   cover_url?: string
+  /** 并排看的比较语义：image=看图，web/zip/link=看封面+点进作品（后端随行返回） */
+  demo_type?: 'web' | 'zip' | 'link' | 'image'
   models: ModelBrief[]
   prompt_id: number | null
   /** null = 该作品未填提示词，一致性未知（既不算一致也不算不一致） */
@@ -625,6 +641,8 @@ export interface Paginated<T> {
   total: number
   page: number
   page_size: number
+  /** sort=random 专用：本次顺序的会话固定种子；翻页回传 ?rs= 它即跨时间桶不重复不漏件 */
+  random_seed?: string | null
 }
 
 
@@ -691,6 +709,8 @@ export interface DemoListParams {
   task?: string
   /** 首页策展池（07 §2.2）：featured=1 只出精选并按 featured_order 排序 */
   featured?: number
+  /** sort=random 会话固定种子（首响回传 random_seed，翻页回传同一值） */
+  rs?: string
   page?: number
   page_size?: number
 }

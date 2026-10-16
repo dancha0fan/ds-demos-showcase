@@ -53,6 +53,8 @@ import type {
   PaginatedModels,
   PaginatedTasks,
   TaskDetail,
+  TaskProposalIn,
+  TaskProposalOut,
   TaskSuggestItem,
   SamePromptResult,
   PromptClusters,
@@ -193,6 +195,7 @@ const realApi = {
         model: params.model,
         task: params.task,
         sort: params.sort,
+        rs: params.rs,
         page: params.page,
         page_size: params.page_size,
         featured: params.featured,
@@ -594,6 +597,11 @@ const realApi = {
   },
   async getTask(slug: string): Promise<TaskDetail> {
     const { data } = await http.get(`/tasks/${encodeURIComponent(slug)}`)
+    return data
+  },
+  /** 独立出题（登录用户，不依赖上传作品）：只进待审收件箱，管理员批准才公开 */
+  async proposeTask(payload: TaskProposalIn): Promise<TaskProposalOut> {
+    const { data } = await http.post('/tasks', payload)
     return data
   },
   // ---------- v2 B3′：治理台（admin only） ----------

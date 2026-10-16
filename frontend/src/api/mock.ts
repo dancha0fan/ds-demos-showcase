@@ -60,6 +60,8 @@ import type {
   PaginatedModels,
   PaginatedTasks,
   TaskDetail,
+  TaskProposalIn,
+  TaskProposalOut,
   TaskSummary,
   TaskSuggestItem,
   SamePromptResult,
@@ -608,6 +610,8 @@ const mockTasks: TaskSummary[] = [
   { id: 1, slug: 'mc-web', title: '我的世界网页版', description: '用网页技术复刻我的世界核心玩法', category: '游戏', status: 'active', demo_count: 3, created_at: '2026-08-05T00:00:00Z' },
 ]
 let mockTaskSeq = 2
+// 独立出题的 mock 待审提案（与真接口同语义：同题名 pending 幂等，不直建题目）
+const mockTaskProposals: { id: number; title: string; description: string; category: string | null; status: 'pending' }[] = []
 // 身份绑定闭环 A：createDemo 成功后才带 demo_id suggestTagValue，需要一个稳定 demo id
 let mockDemoIdSeq = 1
 
@@ -1470,6 +1474,17 @@ export const mockApi = {
       .slice(0, limit)
       .map((x) => ({ task_id: x.t.id, slug: x.t.slug, title: x.t.title, category: x.t.category, demo_count: x.t.demo_count, score: Number(x.score.toFixed(3)) }))
   },
+  /** 独立出题（mock）：同题名 pending 幂等返回，与真接口同形 */
+  async proposeTask(payload: TaskProposalIn): Promise<TaskProposalOut> {
+    await delay()
+    const title = (payload.title || '').trim()
+    if (!title) throw new Error('title 必填（不能全是空白）')
+    const dup = mockTaskProposals.find((p) => p.title === title && p.status === 'pending')
+    if (dup) return { status: 'pending', suggestion_id: dup.id, duplicate: true }
+    const id = mockTaskProposals.length ? Math.max(...mockTaskProposals.map((p) => p.id)) + 1 : 1
+    mockTaskProposals.push({ id, title, description: payload.description || '', category: payload.category || null, status: 'pending' })
+    return { status: 'pending', suggestion_id: id, duplicate: false }
+  },
   async getTask(slug: string): Promise<TaskDetail> {
     await delay()
     const task = mockTasks.find((t) => t.slug === slug)
@@ -1494,6 +1509,7 @@ export const mockApi = {
           slug: d.slug,
           title: d.title,
           cover_url: d.cover_url,
+          demo_type: d.demo_type ?? 'web',
           models: d.models ?? [],
           prompt_id: null,
           same_prompt: null,

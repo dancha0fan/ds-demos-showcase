@@ -50,22 +50,27 @@ def create(
     ref_id: int | None = None,
     created_by: int | None = None,
     auto_accept: bool = False,
+    dedupe: bool = True,
 ) -> EntitySuggestion | None:
     """落一条建议（幂等：同 kind + ref_id + demo_id 的 pending 不重复堆）。
 
     返回 None = 被去重丢弃。高置信 + auto_accept=True 才当场执行（LLM 时代的行为）。
+    dedupe=False 跳过该检查：三条定位键全为 None 的调用（如独立出题）会被判成同一条，
+    全站只能堆进一条 pending —— 去重改由调用方按自己的业务键做（端点内同用户同题名幂等）。
     """
     if kind not in SUGGESTION_KINDS:
         raise HTTPException(status_code=422, detail=f"未知建议类型: {kind}")
     if source not in SUGGESTION_SOURCES:
         raise HTTPException(status_code=422, detail=f"未知来源: {source}")
 
-    dup = db.query(EntitySuggestion).filter(
-        EntitySuggestion.kind == kind,
-        EntitySuggestion.ref_id == ref_id,
-        EntitySuggestion.demo_id == demo_id,
-        EntitySuggestion.status == "pending",
-    ).first()
+    dup = None
+    if dedupe:
+        dup = db.query(EntitySuggestion).filter(
+            EntitySuggestion.kind == kind,
+            EntitySuggestion.ref_id == ref_id,
+            EntitySuggestion.demo_id == demo_id,
+            EntitySuggestion.status == "pending",
+        ).first()
     if dup is not None:
         # 已排队：只在置信度更高时刷新证据，不重复建行
         if confidence is not None and (dup.confidence or 0) < confidence:

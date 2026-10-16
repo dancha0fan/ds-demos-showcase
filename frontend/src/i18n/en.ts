@@ -205,6 +205,12 @@ export const en = {
     loadMore: 'Load more…',
     allLoaded: 'All {n} demos loaded',
     noMatch: 'No matching demos — try another tag or keyword.',
+    // 同题折叠（题目系统 v2）：组内计数是「已加载切片」，不冒充题目总件数
+    taskGroup: 'Group by task',
+    tgCount: '{n} loaded',
+    tgOpen: 'Task page →',
+    tgUngrouped: 'Works without a task',
+    tgExpand: 'Expand to see all',
   },
 
   leaderboard: {
@@ -1128,6 +1134,7 @@ export const en = {
     emptyList: 'No tasks yet',
     sortDemos: 'Most works',
     sortNew: 'Newest',
+    newTask: '＋ New task',
     enter: 'Compare →',
     promptTag: 'brief',
     bestContaining: 'Top work containing it: ',
@@ -1189,6 +1196,26 @@ export const en = {
     retry: 'Retry',
     backList: 'Back to models',
     backExplore: 'Go to Explore',
+  },
+
+  // 独立出题（题目系统 v2）：题目与作品创建解耦
+  taskNew: {
+    title: 'Create a task',
+    sub: 'Tasks no longer have to be born from a work — start one first, works can be attached later by you or anyone else.',
+    titleRequired: 'Title is required',
+    ok: 'Submitted — now in the review queue. An admin approval makes it public.',
+    dupOk: 'You already proposed this task and it is still in the review queue — no need to submit again.',
+    okNote: 'Once approved, anyone (including you) can attach a work via “Challenge this task” on the upload page.',
+    again: 'Create another',
+    fieldTitle: 'Title',
+    phTitle: 'e.g. A snake game you can only steer with a battery bar',
+    fieldBrief: 'Brief',
+    phBrief: 'What exactly the task asks: goal, constraints, judging criteria. A clear brief is what makes same-task comparison fair.',
+    fieldCategory: 'Category (optional)',
+    phCategory: 'game / tool / effect…',
+    submitting: 'Submitting…',
+    submit: 'Submit for review',
+    rule: 'Sign-in required; submissions enter the review queue and stay private until approved. Same review process as proposing a task during upload.',
   },
 
   entityPicker: {
