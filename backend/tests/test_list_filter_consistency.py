@@ -128,7 +128,12 @@ def test_random_sort_without_filter_keeps_global_semantics(client):
     r = client.get("/api/v1/demos?sort=random&page_size=100").json()
     got = {i["slug"] for i in r["items"]}
     assert {s1, s2} <= got, f"无过滤 random 应出全部：{sorted(got)}"
-    assert r["total"] == len(r["items"]), f"total/items 应自洽：{r['total']} vs {len(r['items'])}"
+    # total/items 同源的口径：items 长度必须是 min(total, page_size)。
+    # 不写 total == len(items)——那要求全库恰好 ≤100 件，而库是跨文件共享的（别的用例
+    # 也会留下已上架作品），会把「同源」这个真命题测成「全库很小」这个假前提。
+    assert len(r["items"]) == min(r["total"], 100), (
+        f"total/items 不同源：total={r['total']}，items={len(r['items'])}"
+    )
 
     # 超页返回空、不报错（既有边界语义）
     r = client.get("/api/v1/demos?sort=random&page=99&page_size=50").json()

@@ -392,14 +392,11 @@ onMounted(async () => {
 /* B2 键盘可达（role=button 收尾）：把原 span 上「移除待审标签 / 厂商折叠头」换成真 <button>。
    结构样式都在冻结区（styles/components/chip.css、styles/pages/tag-system.css），不改它们；
    这里只清 UA 默认按钮样式，让真 button 渲染得与原 span 一致。 */
-button[data-reset] {
-  all: unset;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-4);
-  cursor: pointer;
-  font: inherit;
-}
+/* UA 默认按钮样式的清零收口在 styles/base/reset.css 的 `:where(button[data-reset])`。
+   组件 scoped 块里**不要**再写 all: unset / display / gap：scoped 编译后特异性是 0-2-1，
+   会盖掉冻结区（chip.css 的 .tag-chip = 0-1-0、tag-system.css 的 .vendor-group-head = 0-1-0），
+   把 padding / border / background / box-shadow 一并抹掉（2026-10-16 实测：已选芯片失去
+   黑底白字、厂商折叠头失去 mint 底与下边框，且 gap 被改成 --sp-4 而冻结区要的是 --sp-8）。 */
 button[data-reset]:focus-visible {
   /* 焦点可见性与站点一致：键盘聚焦时显示一处明显轮廓（TagTip.vue:71 同款语义） */
   outline: 3px solid var(--ink, #000);

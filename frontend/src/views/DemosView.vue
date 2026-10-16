@@ -1045,14 +1045,13 @@ span.fp-group-head {
 }
 
 /* B2 键盘可达：.vendor-strip-head 的结构样式（flex/gap/padding/hover）在 styles/pages/demos.css，
-   冻结区不动；此处仅在**当前视图**内把「该元素已是 <button>」的 UA 默认样式清零，
-   让真 button 渲染得与原先 span 一致（原 role=button 的 span 不可聚焦，已换为真按钮）。 */
+   冻结区不动；UA 默认按钮样式的清零收口在 styles/base/reset.css 的
+   `:where(button[data-reset])`（特异性 0，保证不会盖掉冻结区）。
+   此处只补冻结区没声明、而 button 默认会带上的两项——**不要**再写 all: unset / display /
+   align-items / gap / cursor：scoped 编译后特异性 0-2-1，会抹掉冻结区的
+   background(mint) / border-bottom / padding / gap(--sp-8)（2026-10-16 实测）。 */
 button[data-reset].vendor-strip-head {
-  all: unset;
-  display: flex;
-  align-items: center;
   width: 100%;
-  cursor: pointer;
   font: inherit;
 }
 /* 焦点可见性与站点一致：focus 走 hover 的纸深底（与 fp-group-head 的 hover/focus 处理同款） */

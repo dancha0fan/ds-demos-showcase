@@ -204,8 +204,11 @@ def test_slug_keeps_separators_and_unverified_normalization(client):
         m1, created1 = model_service.get_or_create_model(db, "Some-New-Model")
         assert created1 and m1.slug == "some-new-model", m1.slug
 
-        m2, created2 = model_service.get_or_create_model(db, "ds-unknown")
-        assert created2
+        # 不断言 created2 为真：库是跨文件共享的，别的用例可能已经建过 ds-unknown
+        # （如 test_image_demos 用 model:ds-unknown 标签，标签同步会建实体）。
+        # 本用例锁的是「slug 保留连字符」与「灰测名落到 unverified」两条语义，
+        # 与「是否首次创建」无关——把后者当断言会让本用例依赖别的文件跑没跑过。
+        m2, _created2 = model_service.get_or_create_model(db, "ds-unknown")
         assert m2.status == "unverified", "灰测名未落到 unverified"
         assert m2.slug == "ds-unknown", m2.slug
 
