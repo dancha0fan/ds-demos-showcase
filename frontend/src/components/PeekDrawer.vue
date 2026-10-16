@@ -33,13 +33,24 @@ async function load() {
 }
 
 watch(() => props.target && `${props.target.kind}:${props.target.slug}`, load)
+// 焦点归还：打开时记住打开前的焦点载体，关闭后还给它。抽屉是 v-if 挂载，
+// 归还放到 nextTick 等真实移除后进行（与 SearchOverlay/facet 抽屉同一模式）。
+let returnFocusTo: HTMLElement | null = null
 watch(
   () => !!props.target,
   (open) => {
-    if (!open) {
-      data.value = null
-      error.value = ''
+    if (open) {
+      const active = document.activeElement
+      returnFocusTo = active instanceof HTMLElement ? active : null
+      return
     }
+    void nextTick(() => {
+      const el = returnFocusTo
+      returnFocusTo = null
+      if (el?.isConnected) el.focus()
+    })
+    data.value = null
+    error.value = ''
   },
 )
 

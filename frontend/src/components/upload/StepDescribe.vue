@@ -33,7 +33,7 @@ defineProps<{
   descOk: boolean
   promptOk: boolean
   editSlug: string
-  demoType: 'web' | 'zip' | 'link'
+  demoType: 'web' | 'zip' | 'link' | 'image'
   zipFile: File | null
   coverFile: File | null
   currentCover: string
@@ -228,7 +228,7 @@ function onTaskEntityPick(p: EntityPick) {
       </button>
     </div>
 
-    <label class="field">
+    <label v-if="demoType !== 'image'" class="field">
       {{ t('upload.cover', '封面（可选）') }}{{ editSlug ? t('upload.coverEdit', '（可选，不选保留当前封面）') : '' }}
       <input class="input" type="file" accept="image/png,image/jpeg,image/webp" @change="emit('coverChange', $event)" />
       <div v-if="currentCover || coverPreview" class="cover-preview">

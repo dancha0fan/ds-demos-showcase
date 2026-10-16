@@ -28,6 +28,8 @@ interface SearchRow {
 
 const router = useRouter()
 const rootEl = ref<HTMLElement | null>(null)
+/** 打开前的焦点载体（用于关闭后归还焦点） */
+let returnFocusTo: HTMLElement | null = null
 const inputEl = ref<HTMLInputElement | null>(null)
 
 const q = ref('')
@@ -216,6 +218,10 @@ function onWinKey(e: KeyboardEvent) {
 
 watch(searchOpen, (open) => {
   if (open) {
+    // 焦点归还分两步：开时把焦点交给输入框，并记住打开前的焦点载体
+    // （⌘K 打开时可能是 body；点击顶栏 ⌕ 打开时是那个按钮，关闭后要还给它）。
+    const active = document.activeElement
+    returnFocusTo = active instanceof HTMLElement ? active : null
     // RF-2：走引用计数锁 —— 旧写法保存/还原 body.overflow，会与全屏 iframe 互相踩
     lockBodyScroll() // 全屏覆盖层期间锁定背后滚动
     void nextTick(() => {
@@ -229,6 +235,12 @@ watch(searchOpen, (open) => {
       timer = undefined
     }
     seq++ // 作废在途请求：关闭后回来的响应不再上屏
+    // 覆盖层是 v-if 挂载，等它真正移除后再把焦点还给触发元素；已卸载则不再处理。
+    void nextTick(() => {
+      const el = returnFocusTo
+      returnFocusTo = null
+      if (el?.isConnected) el.focus()
+    })
   }
 })
 

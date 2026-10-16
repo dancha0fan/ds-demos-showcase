@@ -233,14 +233,15 @@ onMounted(async () => {
     </div>
 
     <div v-if="onlySelected" class="tag-pane-selected tag-pane-selected-all">
-      <span
+      <button
         v-for="s in selectedList"
         :key="s.key + ':' + s.value"
         class="tag-chip active"
-        role="button"
+        data-reset
+        type="button"
         :title="s.description || '点击移除'"
         @click="removeValue(s.key, s.value)"
-      >{{ s.key }}:{{ tagLabel(s.value) }}<span class="chip-x">X</span></span>
+      >{{ s.key }}:{{ tagLabel(s.value) }}<span class="chip-x">X</span></button>
       <div v-if="!selectedList.length" class="muted">还没有已选标签</div>
     </div>
 
@@ -278,10 +279,17 @@ onMounted(async () => {
 
             <template v-if="activeTagKey.mode === 'fixed'">
               <div v-for="g in vendorGroups(activeTagKey)" :key="g.group" class="vendor-group">
-                <div class="vendor-group-head" role="button" @click="toggleVendor(g.group)">
+                <button
+                  class="vendor-group-head"
+                  data-reset
+                  type="button"
+                  :aria-expanded="!isVendorCollapsed(g.group)"
+                  :aria-label="`${g.group}：${isVendorCollapsed(g.group) ? '展开' : '收起'}`"
+                  @click="toggleVendor(g.group)"
+                >
                   <span class="vendor-group-name">{{ g.group }}</span>
                   <span v-if="!searchActive" class="vendor-group-toggle">{{ isVendorCollapsed(g.group) ? '展开' : '收起' }}</span>
-                </div>
+                </button>
                 <div v-if="!isVendorCollapsed(g.group) || searchActive" class="filter-row" style="margin: 0">
                   <button
                     v-for="v in g.values"
@@ -311,14 +319,15 @@ onMounted(async () => {
               <!-- 上传场景待审新值：只留本地待审 chips，不入 tags 数组，不上公共词表 -->
               <div v-if="props.deferApply" class="tag-pending-new">
                 <span v-if="pendingOfKey.length" class="filter-label">{{ t('tagPicker.pendingLabel', '待审新值') }}</span>
-                <span
+                <button
                   v-for="p in pendingOfKey"
                   :key="p.value"
                   class="tag-chip mode-pending"
-                  role="button"
+                  data-reset
+                  type="button"
                   :title="p.description || p.value"
                   @click="removePending(activeTagKey.key, p.value)"
-                >{{ tagLabel(p.value) }}<span class="chip-x">X</span></span>
+                >{{ tagLabel(p.value) }}<span class="chip-x">X</span></button>
               </div>
             </template>
 
@@ -361,14 +370,15 @@ onMounted(async () => {
 
             <div v-if="selectedOf(activeTagKey.key).length" class="tag-pane-selected">
               <span class="filter-label">已选</span>
-              <span
+              <button
                 v-for="v in selectedOf(activeTagKey.key)"
                 :key="v.value"
                 class="tag-chip active"
-                role="button"
+                data-reset
+                type="button"
                 :title="v.description || '点击移除'"
                 @click="removeValue(activeTagKey.key, v.value)"
-              >{{ tagLabel(v.value) }}<span class="chip-x">X</span></span>
+              >{{ tagLabel(v.value) }}<span class="chip-x">X</span></button>
             </div>
           </template>
           <div v-else class="muted">请选择左侧标签键</div>
@@ -377,3 +387,19 @@ onMounted(async () => {
     </template>
   </div>
 </template>
+
+<style scoped>
+/* B2 键盘可达（role=button 收尾）：把原 span 上「移除待审标签 / 厂商折叠头」换成真 <button>。
+   结构样式都在冻结区（styles/components/chip.css、styles/pages/tag-system.css），不改它们；
+   这里只清 UA 默认按钮样式，让真 button 渲染得与原 span 一致。 */
+/* UA 默认按钮样式的清零收口在 styles/base/reset.css 的 `:where(button[data-reset])`。
+   组件 scoped 块里**不要**再写 all: unset / display / gap：scoped 编译后特异性是 0-2-1，
+   会盖掉冻结区（chip.css 的 .tag-chip = 0-1-0、tag-system.css 的 .vendor-group-head = 0-1-0），
+   把 padding / border / background / box-shadow 一并抹掉（2026-10-16 实测：已选芯片失去
+   黑底白字、厂商折叠头失去 mint 底与下边框，且 gap 被改成 --sp-4 而冻结区要的是 --sp-8）。 */
+button[data-reset]:focus-visible {
+  /* 焦点可见性与站点一致：键盘聚焦时显示一处明显轮廓（TagTip.vue:71 同款语义） */
+  outline: 3px solid var(--ink, #000);
+  outline-offset: 1px;
+}
+</style>

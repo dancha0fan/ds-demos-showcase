@@ -32,3 +32,21 @@ jobs:
         run: npm run test
       - name: 三步门 ③ 构建
         run: npm run build
+
+  # 后端全量回归。原先 CI 只跑前端：后端 pytest 一条都不跑，全量回归变红没有任何信号，
+  # 新增用例的跨文件顺序脆弱性因此长期不可见（2026-10-16 实测：基线 236 全绿，
+  # 两个 PR 的全量跑分别 2 failed / 4 failed，而 CI 全绿）。
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 安装依赖
+        run: pip install -r requirements-dev.txt
+      - name: 后端全量回归（pytest）
+        run: pytest -q

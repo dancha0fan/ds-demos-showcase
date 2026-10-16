@@ -16,7 +16,9 @@ export const useTagsStore = defineStore('tags', () => {
       keys.value = await api.listTagKeys()
       loaded.value = true
     } catch {
-      keys.value = []
+      // P-12：失败时**保留既有缓存**。原实现 `keys.value = []` 会把此前成功加载的
+      // 词表一并丢掉 —— 上传页标签选择器会瞬间变空，且 store 无 error 状态、静默无感。
+      // loaded 不置位 → 下次 load() 仍会重试（失败不该被当成"已加载"）。
     } finally {
       loading.value = false
     }

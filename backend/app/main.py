@@ -3,6 +3,7 @@ from pathlib import Path
 import asyncio
 import logging
 import mimetypes
+import re
 import time
 from datetime import datetime, timezone
 
@@ -177,9 +178,17 @@ def health(db: Session = Depends(get_db)):
     )
 
 
+# 预览版本段的合法形态（与 serializers.version 的两条生成路径一致）：
+#   · content_hash[:12] → 12 位十六进制；· 无 hash 时 -> str(int(created_at.timestamp())) 纯数字。
+# 必须白名单校验：该段会原样拼进 HTML 的 <base href>，含引号/尖括号即可逃出属性注入标签。
+_VERSION_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+
+
 def _serve_preview(slug: str, path: str, version: str | None = None):
     if "/" in slug or "\\" in slug or not slug:
         raise HTTPException(status_code=400, detail="非法的 demo 标识", )
+    if version is not None and not _VERSION_RE.match(version):
+        raise HTTPException(status_code=400, detail="非法的版本标识", )
     # 预览可见域门禁（60s 缓存护子资源逐文件请求）：
     # astra 域只出策展池且已上架；deep 域存量行默认 sites 含 'deep' → 判定恒过，行为不变。
     if not scope_service.demo_public_in_scope(slug, scope_service.current_scope.get()):

@@ -7,7 +7,7 @@ import { t } from '../i18n'
 import { tagLabel } from '../utils/funMode'
 import { useSelectedTags } from './useSelectedTags'
 
-type DemoType = 'web' | 'zip' | 'link'
+type DemoType = 'web' | 'zip' | 'link' | 'image'
 type SelectedMap = Record<string, { value: string; description: string }[]>
 
 export function useUploadWizard(deps: {
@@ -184,6 +184,7 @@ export function useUploadWizard(deps: {
     { value: 'web' as const, label: t('upload.typeWebCard', '网页应用'), hint: t('upload.typeWebHint', 'zip 或单个 .html/.svg，站内直接预览') },
     { value: 'zip' as const, label: t('upload.typeZipCard', '文件包'), hint: t('upload.typeZipHint', '只给下载，不预览') },
     { value: 'link' as const, label: t('upload.typeLinkCard', '外部链接'), hint: t('upload.typeLinkHint', '跳到站外打开') },
+    { value: 'image' as const, label: t('upload.typeImageCard', '图像作品'), hint: t('upload.typeImageHint', 'png/jpg/webp 直传，图即作品') },
   ])
   const typeLabelNow = computed(() => typeOptions.value.find((o) => o.value === deps.demoType.value)?.label || deps.demoType.value)
   const barPct = computed(() => Math.round((allDone.value / Math.max(1, checklist.value.length)) * 100))

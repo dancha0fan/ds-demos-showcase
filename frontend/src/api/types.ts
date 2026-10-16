@@ -99,8 +99,8 @@ export interface DemoSummary {
   comment_count: number
   created_at: string
   status?: string
-  /** web=网页应用 zip=文件包 link=外部链接 */
-  demo_type?: 'web' | 'zip' | 'link'
+  /** web=网页应用 zip=文件包 link=外部链接 image=图像作品（一期） */
+  demo_type?: 'web' | 'zip' | 'link' | 'image'
   external_url?: string | null
   /** 第一轮提示词（列表摘要返回，供提示词模式展示/复制） */
   prompt?: string
@@ -233,6 +233,8 @@ export interface TaskSuggestItem {
 export interface TaskChainRow {
   slug: string
   title: string
+  /** 并排看图片 URL（该作品 cover_url，可能是 webp 或外链） */
+  cover_url?: string
   models: ModelBrief[]
   prompt_id: number | null
   /** null = 该作品未填提示词，一致性未知（既不算一致也不算不一致） */
@@ -711,7 +713,7 @@ export interface CreateDemoPayload {
   title: string
   description?: string
   tags?: TagInput[]
-  demo_type?: 'web' | 'zip' | 'link'
+  demo_type?: 'web' | 'zip' | 'link' | 'image'
   external_url?: string
   prompt?: string
   video_url?: string
@@ -736,7 +738,7 @@ export interface UpdateDemoPayload {
   title?: string
   description?: string
   tags?: TagInput[]
-  demo_type?: 'web' | 'zip' | 'link'
+  demo_type?: 'web' | 'zip' | 'link' | 'image'
   external_url?: string
   prompt?: string
   video_url?: string

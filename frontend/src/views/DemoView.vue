@@ -572,6 +572,20 @@ onMounted(load)
             <button class="btn btn-primary" type="button" @click="onDownload">{{ t('demo.downloadZipN', '下载 ZIP（{n} 次）', { n: demo.download_count }) }}</button>
           </div>
         </template>
+        <template v-else-if="demo.demo_type === 'image'">
+          <!-- 图像作品：图即作品（cover_url 就是这张图本身）。复用 CoverImg 唯一的图片出口与降级链。 -->
+          <div class="dv-image-stage">
+            <CoverImg
+              v-if="demo.cover_url"
+              class="dv-image-img"
+              :src="demo.cover_url"
+              tier="full"
+              eager
+              :alt="demo.title"
+            />
+            <div v-else class="dv-image-fallback" aria-hidden="true">{{ demo.title[0] }}</div>
+          </div>
+        </template>
         <template v-else>
           <div class="card card-coral dv-standin">
             <h2>{{ t('demo.linkTitle', '外部链接项目') }}</h2>
@@ -635,7 +649,7 @@ onMounted(load)
           </div>
 
           <div class="dv-group dv-actions">
-            <button v-if="demo.demo_type !== 'link'" class="btn btn-secondary dv-action-main" type="button" @click="onDownload">{{ demo.single_file ? t('demo.downloadFile', '下载文件') : t('demo.downloadZip', '下载 ZIP') }}</button>
+            <button v-if="demo.demo_type !== 'link'" class="btn btn-secondary dv-action-main" type="button" @click="onDownload">{{ demo.demo_type === 'image' ? t('demo.downloadImage', '下载图片') : demo.single_file ? t('demo.downloadFile', '下载文件') : t('demo.downloadZip', '下载 ZIP') }}</button>
             <div class="dv-action-row">
               <!-- 收藏：未收藏 = 白底黑边，已收藏 = 黑底白字 -->
             <button
@@ -954,6 +968,30 @@ onMounted(load)
   font-weight: 900;
   font-size: 56px;
   text-transform: uppercase;
+}
+/* 图像作品详情：图即作品，居中展示、不裁切（与海报的 object-fit:cover 相反——
+   海报是视频封面可以裁，作品图被裁等于改内容）。高度上限防超长图把事实卡挤走。 */
+.dv-image-stage {
+  display: grid;
+  place-items: center;
+  background: var(--paper-deep, #f2eee6);
+  border: 4px solid var(--ink, #000);
+  padding: var(--sp-10, 10px);
+}
+.dv-image-img {
+  display: block;
+  max-width: 100%;
+  max-height: min(72vh, 900px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+.dv-image-fallback {
+  font-family: var(--font-heading, sans-serif);
+  font-weight: 900;
+  font-size: 56px;
+  text-transform: uppercase;
+  padding: var(--sp-40, 40px);
 }
 .pv-play {
   position: absolute;

@@ -3,7 +3,7 @@ import { ref, watch } from 'vue'
 import type { Ref } from 'vue'
 import { t } from '../i18n'
 
-type DemoType = 'web' | 'zip' | 'link'
+type DemoType = 'web' | 'zip' | 'link' | 'image'
 type SelectedMap = Record<string, { value: string; description: string }[]>
 
 /**

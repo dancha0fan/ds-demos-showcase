@@ -227,6 +227,14 @@ async def _read_limited(file: UploadFile, limit: int, msg: str) -> bytes:
     return b"".join(chunks)
 
 
+def _save_image_cover(data: bytes, ext: str) -> tuple[None, tuple[str, str, str]]:
+    """替换封面用（update image）：返回 (None, save_cover 三元组)，便于一次性解包。
+
+    与 _create_demo_record 的封面块共用同一个 storage.save_cover —— 压缩/2 档缩略图/越界
+    防护规则只有一份，不在路由里再造。"""
+    return None, storage.save_cover(data, ext)
+
+
 def _set_demo_tags(db: Session, demo: Demo, key_values: list[str]) -> None:
     # 先记下「本作品已挂的标签 id」：编辑时允许保留自己原有的已退役值（KB-3），
     # 但新选退役值一律 422。必须在删除旧关联之前取。
@@ -419,6 +427,12 @@ def list_demos(
     if platform:
         query = query.filter(Demo.gen_platform.ilike(platform))
 
+    # sort=random 的分流依据（见下方 random 分支）：任一实质过滤存在时，随机序必须建立在
+    # **过滤后的集合**上，否则过滤被静默忽略。featured 走自己的分支，不在此列。
+    has_filter = bool(
+        tag or q or author or model or task or rounds or minutes or platform or status != "approved"
+    )
+
     if q:
         like = f"%{q}%"
         from sqlalchemy import func as sa_func, select
@@ -459,9 +473,23 @@ def list_demos(
         total = query.count()
         items = query.offset((page - 1) * page_size).limit(page_size).all()
     elif sort == "random":
-        # 首页精选整批随机：缓存整份随机 id 序（60s，按视区分键），避免每次 ORDER BY RANDOM() 全表扫
         total = query.count()
-        ids = _random_ids(db, page, page_size, scope)
+        if has_filter:
+            # 有实质过滤：必须对**过滤后**的 id 集合洗牌 —— 否则过滤条件被静默忽略，
+            # 且 total（过滤后计数）与 items（全局池）不同源自相矛盾。
+            # 顺序用「scope + 过滤签名 + 60s 时间桶」播种：桶内翻页顺序稳定（与未过滤路径的
+            # 60s 缓存同语义，page=2 不会与 page=1 重复或漏件），且不引入无界缓存
+            # （过滤组合空间大，用签名字典缓存会长大）。
+            sig = repr((status, sorted(tag), q or "", author or "", model or "", task or "",
+                        rounds or "", minutes or "", platform or ""))
+            ids = [d for (d,) in query.with_entities(Demo.id).all()]
+            random.Random(f"{scope}|{sig}|{int(time.time() // _RANDOM_TTL)}").shuffle(ids)
+            start = (page - 1) * page_size
+            ids = ids[start : start + page_size]
+        else:
+            # 无过滤：保持原有整批随机语义（60s 缓存整份随机 id 序，按视区分键，
+            # 避免每次 ORDER BY RANDOM() 全表扫）——首页「随便看看」行为不变。
+            ids = _random_ids(db, page, page_size, scope)
         if ids:
             items = db.query(Demo).filter(Demo.id.in_(ids)).all()
             order = {did: i for i, did in enumerate(ids)}
@@ -617,9 +645,21 @@ def _compute_related(db: Session, slug: str, scope: str) -> list:
 
 
 def _validate_demo_type(t: str) -> str:
-    if t not in ("web", "zip", "link"):
-        raise HTTPException(status_code=422, detail="demo_type 需为 web（网页应用）/ zip（文件包）/ link（外部链接）", )
+    if t not in ("web", "zip", "link", "image"):
+        raise HTTPException(status_code=422, detail="demo_type 需为 web（网页应用）/ zip（文件包）/ link（外部链接）/ image（图像作品）", )
     return t
+
+
+def _image_file_ext(filename: str | None) -> str | None:
+    """图像作品白名单后缀 → (扩展名, ...)；非图像返回 None。内容真伪交给
+    compress_cover 的 Pillow 校验（损坏/伪扩展名 → 400；像素超限 → 413），与封面同口径。"""
+    if not filename:
+        return None
+    name = filename.lower()
+    for ext in ("png", "jpg", "jpeg", "webp"):
+        if name.endswith("." + ext):
+            return ext
+    return None
 
 
 def _single_file_ext(filename: str | None) -> str | None:
@@ -1089,6 +1129,24 @@ async def create_demo(
             raise HTTPException(status_code=400, detail="链接类型不需要上传文件", )
         zip_bytes = None
         single_file = None
+    elif demo_type == "image":
+        # 图像作品：file 即作品本体，同时充当封面（D3：图片本身即封面，忽略额外 cover 参数）
+        ext_url = None
+        if file is None or not file.filename:
+            raise HTTPException(status_code=400, detail="必须上传图像文件", )
+        if not _image_file_ext(file.filename):
+            raise HTTPException(status_code=400, detail="图像作品仅支持 PNG / JPG / JPEG / WEBP", )
+        zip_bytes = None
+        single_file = None
+        cover_ext = _image_file_ext(file.filename) or "png"
+        cover_bytes = await _read_limited(file, settings.max_file_size, "上传超过大小限制")
+        # 内容真伪（损坏 / 伪扩展名 / 像素超限）在 _create_demo_record → save_cover → compress_cover 里
+        # 统一 400/413，与封面上传同口径，不在这里另写一套 Pillow 校验（避免错误文案分叉）。
+        # 内容一致性：同一作者不允许上传相同内容（管理员 force 可跳过）
+        content_hash = _zip_content_hash(cover_bytes)
+        dup = _find_duplicate_demo(db, content_hash, _author_scope_id(user))
+        if dup is not None and not allow_force:
+            raise _dup_conflict(dup)
     else:
         ext_url = None
         if file is None or not file.filename:
@@ -1109,11 +1167,14 @@ async def create_demo(
         if dup is not None and not allow_force:
             raise _dup_conflict(dup)
 
-    cover_bytes = None
-    cover_ext = "png"
-    if cover is not None and cover.filename:
-        cover_ext = Path(cover.filename or "").suffix.lstrip(".") or "png"
-        cover_bytes = await _read_limited(cover, settings.max_file_size, "封面文件过大")
+    if demo_type == "image":
+        pass  # 作品图片已在上面读入 cover_bytes，这里不再重置（顺序陷阱，见 K3 交接）
+    else:
+        cover_bytes = None
+        cover_ext = "png"
+        if cover is not None and cover.filename:
+            cover_ext = Path(cover.filename or "").suffix.lstrip(".") or "png"
+            cover_bytes = await _read_limited(cover, settings.max_file_size, "封面文件过大")
 
     demo, status, created = await _create_demo_record(
         db, user,
@@ -1176,6 +1237,25 @@ async def create_demo_from_url(
         zip_bytes = None
         content_hash = None
         single_file = None
+    elif demo_type == "image":
+        # 图像作品：file_url 即作品本体 URL（后端下载），同时充当封面（D3，忽略 cover_url）
+        ext_url = None
+        single_file = None
+        zip_bytes = None
+        if not body.file_url:
+            raise HTTPException(status_code=422, detail="image 类型需要提供 file_url（png/jpg/jpeg/webp）", )
+        if body.zip_url:
+            raise HTTPException(status_code=422, detail="image 类型请用 file_url，不是 zip_url", )
+        if not _image_file_ext(urlparse(body.file_url).path):
+            raise HTTPException(status_code=422, detail="image 类型的 file_url 需为 png/jpg/jpeg/webp", )
+        cover_ext = _image_file_ext(urlparse(body.file_url).path) or "png"
+        cover_bytes = await asyncio.to_thread(_download_url_bytes, body.file_url, settings.max_file_size, "图像")
+        # 内容一致性：同一作者不允许上传相同内容（管理员 force 可跳过）
+        allow_force = bool(body.force) and user is not None and user.role == "admin"
+        content_hash = _zip_content_hash(cover_bytes)
+        dup = _find_duplicate_demo(db, content_hash, _author_scope_id(user))
+        if dup is not None and not allow_force:
+            raise _dup_conflict(dup)
     else:
         ext_url = None
         single_file = None
@@ -1200,11 +1280,14 @@ async def create_demo_from_url(
         if dup is not None and not allow_force:
             raise _dup_conflict(dup)
 
-    cover_bytes = None
-    cover_ext = "png"
-    if body.cover_url:
-        cover_bytes = await asyncio.to_thread(_download_url_bytes, body.cover_url, settings.max_upload_size, "封面")
-        cover_ext = Path(urlparse(body.cover_url).path).suffix.lstrip(".") or "png"
+    if demo_type == "image":
+        pass  # 图像已在上面下载进 cover_bytes，这里不再重置（顺序陷阱）
+    else:
+        cover_bytes = None
+        cover_ext = "png"
+        if body.cover_url:
+            cover_bytes = await asyncio.to_thread(_download_url_bytes, body.cover_url, settings.max_upload_size, "封面")
+            cover_ext = Path(urlparse(body.cover_url).path).suffix.lstrip(".") or "png"
 
     tags_raw = json.dumps(body.tags, ensure_ascii=False) if body.tags is not None else None
 
@@ -1294,34 +1377,51 @@ async def update_demo(
     if file is not None and file.filename:
         if demo.demo_type == "link":
             raise HTTPException(status_code=400, detail="链接类型不需要上传文件", )
-        single_file = _single_file_ext(file.filename)
-        if single_file:
-            if demo.demo_type == "zip":
-                raise HTTPException(status_code=400, detail="zip 类型需要上传 zip 文件", )
-            zip_bytes = await _read_limited(file, settings.max_file_size, "上传超过大小限制")
-            _validate_single_file(zip_bytes, single_file)
+        if demo.demo_type == "image":
+            # 换图：新图即新封面（cover_bytes 交给下一处封面处理块统一 save_cover）
+            if not _image_file_ext(file.filename):
+                raise HTTPException(status_code=400, detail="图像作品仅支持 PNG / JPG / JPEG / WEBP", )
+            ext = _image_file_ext(file.filename) or "png"
+            new_img = await _read_limited(file, settings.max_file_size, "上传超过大小限制")
+            allow_force = bool(force) and user.role == "admin"
+            h = _zip_content_hash(new_img)
+            dup = _find_duplicate_demo(db, h, demo.author_id, exclude_id=demo.id)
+            if dup is not None and not allow_force:
+                raise _dup_conflict(dup)
+            # cover_bytes 变量在封面处理块里被读取；此处直接走「换封面」路径换图
+            _, save_cover = await asyncio.to_thread(_save_image_cover, new_img, ext)
+            demo.cover_url, demo.cover_thumb_url, _ = save_cover
+            demo.content_hash = h
+            changed = True
         else:
-            if not file.filename.lower().endswith(".zip"):
-                raise HTTPException(status_code=400, detail="必须上传 zip 文件或单个 .html/.svg 文件", )
-            zip_bytes = await _read_limited(file, settings.max_upload_size, "上传超过大小限制")
-        # 内容一致性：不更新成与同作者其他 demo 相同的内容（排除自身；管理员 force 可跳过）
-        allow_force = bool(force) and user.role == "admin"
-        h = _zip_content_hash(zip_bytes)
-        dup = _find_duplicate_demo(db, h, demo.author_id, exclude_id=demo.id)
-        if dup is not None and not allow_force:
-            raise _dup_conflict(dup)
-        demo.content_hash = h
-        demo.single_file = single_file
-        # 勾选「保留旧版本」：先把当前文件快照成独立 demo 页面，再覆盖
-        if keep_old_version:
-            snapshot = _snapshot_demo(db, demo, user)
-        if single_file:
-            await asyncio.to_thread(storage.save_single_file, slug, single_file, zip_bytes)
-            await asyncio.to_thread(_oss_upload_safe, slug)
-        else:
-            await asyncio.to_thread(storage.extract_zip, zip_bytes, slug, require_index=(demo.demo_type == "web"))
-            await asyncio.to_thread(_oss_upload_safe, slug, zip_bytes)
-        changed = True
+            single_file = _single_file_ext(file.filename)
+            if single_file:
+                if demo.demo_type == "zip":
+                    raise HTTPException(status_code=400, detail="zip 类型需要上传 zip 文件", )
+                zip_bytes = await _read_limited(file, settings.max_file_size, "上传超过大小限制")
+                _validate_single_file(zip_bytes, single_file)
+            else:
+                if not file.filename.lower().endswith(".zip"):
+                    raise HTTPException(status_code=400, detail="必须上传 zip 文件或单个 .html/.svg 文件", )
+                zip_bytes = await _read_limited(file, settings.max_upload_size, "上传超过大小限制")
+            # 内容一致性：不更新成与同作者其他 demo 相同的内容（排除自身；管理员 force 可跳过）
+            allow_force = bool(force) and user.role == "admin"
+            h = _zip_content_hash(zip_bytes)
+            dup = _find_duplicate_demo(db, h, demo.author_id, exclude_id=demo.id)
+            if dup is not None and not allow_force:
+                raise _dup_conflict(dup)
+            demo.content_hash = h
+            demo.single_file = single_file
+            # 勾选「保留旧版本」：先把当前文件快照成独立 demo 页面，再覆盖
+            if keep_old_version:
+                snapshot = _snapshot_demo(db, demo, user)
+            if single_file:
+                await asyncio.to_thread(storage.save_single_file, slug, single_file, zip_bytes)
+                await asyncio.to_thread(_oss_upload_safe, slug)
+            else:
+                await asyncio.to_thread(storage.extract_zip, zip_bytes, slug, require_index=(demo.demo_type == "web"))
+                await asyncio.to_thread(_oss_upload_safe, slug, zip_bytes)
+            changed = True
 
     demo.updated_at = datetime.utcnow()
     if changed:
@@ -1457,6 +1557,20 @@ def download_demo(slug: str, db: Session = Depends(get_db), scope: str = Depends
     # 计数走内存批次 + 30s 落库：下载路径零写事务（同 get_demo 的 view_count 处理）
     counters.bump("demo_download", demo.id)
     demo.download_count += 1
+
+    # 图像作品：下载 = 拿到的就是压缩后的展示大图（不保留上传原图，避免误导）
+    if demo.demo_type == "image":
+        if not demo.cover_url.startswith("/media/covers/"):
+            raise HTTPException(status_code=404, detail="图像作品无本地封面文件", )
+        path = settings.media_path / "covers" / demo.cover_url.rsplit("/", 1)[-1]
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="图像作品文件不存在", )
+        return FileResponse(
+            path,
+            media_type="image/webp",
+            filename=f"{slug}.webp",
+            headers={"Cache-Control": "public, max-age=86400, immutable"},
+        )
 
     # 单文件 demo：直接返回原文件（不打包 zip）
     if demo.single_file:

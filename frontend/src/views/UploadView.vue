@@ -33,7 +33,7 @@ const challenge = ref<TaskDetail | null>(null)
 
 const title = ref('')
 const description = ref('')
-const demoType = ref<'web' | 'zip' | 'link'>('web')
+const demoType = ref<'web' | 'zip' | 'link' | 'image'>('web')
 const externalUrl = ref('')
 const prompt = ref('')
 const videoUrl = ref('')
@@ -632,13 +632,15 @@ async function submit(force = false) {
             </span>
           </label>
           <label v-else class="field">
-            {{ t('upload.file', '文件') }}{{ editSlug ? t('upload.fileEdit', '（可选，不选则保留原文件）') : '' }}
+            {{ demoType === 'image' ? t('upload.fileImage', '作品图片') : t('upload.file', '文件') }}{{ demoType === 'image' ? '（必填）' : editSlug ? t('upload.fileEdit', '（可选，不选则保留原文件）') : '' }}
             <!-- key 重挂才能真的清空原生 file input（直接置 null 在部分浏览器无效） -->
-            <input :key="fileInputKey" class="input" type="file" accept=".zip,application/zip,.html,.htm,.svg,text/html,image/svg+xml" data-step-focus="1" @change="onZipChange" />
+            <input :key="fileInputKey" class="input" type="file" :accept="demoType === 'image' ? 'image/png,image/jpeg,image/webp' : '.zip,application/zip,.html,.htm,.svg,text/html,image/svg+xml'" data-step-focus="1" @change="onZipChange" />
             <span class="hint">
-              {{ demoType === 'web'
-                ? t('upload.fileWebHint', '支持 zip（根目录需含 index.html）或单个 .html/.svg；单 HTML 必须自包含（内联 CSS/JS，双击可直接打开）')
-                : t('upload.fileZipHint', 'zip 文件包（不要求 index.html）') }}
+              {{ demoType === 'image'
+                ? t('upload.fileImageHint', '即图为作品，不需另传封面；站内展示 1280 WebP，不保留上传原图')
+                : demoType === 'web'
+                  ? t('upload.fileWebHint', '支持 zip（根目录需含 index.html）或单个 .html/.svg；单 HTML 必须自包含（内联 CSS/JS，双击可直接打开）')
+                  : t('upload.fileZipHint', 'zip 文件包（不要求 index.html）') }}
             </span>
             <span v-if="zipFile" class="uw-picked">
               <span class="mono">{{ zipFile.name }}</span>

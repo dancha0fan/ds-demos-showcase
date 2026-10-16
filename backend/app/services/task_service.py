@@ -629,6 +629,9 @@ def task_chain(db: Session, task: Task, limit: int = 100) -> dict:
             {
                 "slug": d.slug,
                 "title": d.title,
+                # 图像作品一期：「并排看」需要每件作品的图片 URL；d 已在循环内，零额外查询。
+                # 只出 approved（同查询过滤），候选/待审作品本就不在 chain row 里，无泄露面。
+                "cover_url": d.cover_url,
                 "models": models_by_demo.get(d.id, []),
                 "prompt_id": d.prompt_id,
                 # None = 这件作品没填提示词，一致性未知（不能算"一致"也不能算"不一致"）

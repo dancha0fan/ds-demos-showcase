@@ -12,6 +12,7 @@ import { useFacetDrawer } from '../composables/useFacetDrawer'
 import type { QuickPreset } from '../utils/demoFacets'
 import { t, keyLabel, vendorLabel } from '../i18n'
 import DemoCard from '../components/DemoCard.vue'
+import EmptyBox from '../components/EmptyBox.vue'
 import MasonryGrid from '../components/MasonryGrid.vue'
 import PromptDemoCard from '../components/PromptDemoCard.vue'
 import RangeSlider from '../components/RangeSlider.vue'
@@ -397,14 +398,24 @@ const askForumTo = computed(() => {
 })
 
 
-onMounted(async () => {
-  // 从 URL query 还原状态
-  applyRouteQuery()
+/** 分面（tagKeys）加载失败标记：原先 catch 静默清 []，使得「分面请求挂了」与「真的没有分面」
+ *  渲染成同一个「暂无可用分面」。与主列表分开（主列表失败走上面 error 分支），且可独立重试。 */
+const facetLoadError = ref(false)
+
+async function loadFacetKeys() {
+  facetLoadError.value = false
   try {
     tagKeys.value = await api.listTagKeys()
   } catch {
     tagKeys.value = []
+    facetLoadError.value = true
   }
+}
+
+onMounted(async () => {
+  // 从 URL query 还原状态
+  applyRouteQuery()
+  await loadFacetKeys()
   initIntRanges(tagKeys.value, intBoundsOf)
   await load(true)
   observer = new IntersectionObserver(
@@ -529,11 +540,19 @@ onBeforeUnmount(() => observer?.disconnect())
 
     <div class="facet-body" :class="{ 'facet-body--pinned': panelMode === 'pinned' }">
       <div class="facet-main">
-        <div v-if="error" class="notice notice-error">{{ error }}</div>
+        <!-- 错误与空态分离（修复：原先 error 独立渲染，加载失败且列表为空时会同时显示错误横幅
+             与「没有匹配的作品」+ 三个筛选出口，误导用户去放宽条件而非重试）。列表非空时
+             （加载更多失败）保留顶部提示并给重试；列表为空且失败走上面的 EmptyBox(error)。 -->
+        <div v-if="error && demos.length" class="notice notice-error">
+          {{ error }}
+          <button class="btn btn-sm btn-outline" type="button" @click="load()">{{ t('common.retry', '重试') }}</button>
+        </div>
 
         <div v-if="loading && !demos.length" class="loading-row">
           <span class="spinner"></span> {{ refreshing ? t('demos.refreshing', '正在刷新…') : t('demos.loading', '加载 Demo 中…') }}
         </div>
+
+        <EmptyBox v-else-if="error" kind="error" :text="error" :retry-text="t('common.retry', '重试')" @retry="reset" />
 
         <div v-else-if="!demos.length" class="empty-box dv-empty">
           <p class="dv-empty-what">{{ t('demos.emptyWhat', '没有匹配的作品') }}</p>
@@ -608,7 +627,13 @@ onBeforeUnmount(() => observer?.disconnect())
           <span class="fp-grammar-or-line"> · {{ t('demos.grammarOr', '同组任选 = 或') }}</span>
         </p>
 
-        <div v-if="!panelGroups.length" class="fp-empty muted">{{ t('demos.noFacets', '暂无可用分面') }}</div>
+        <div v-if="!panelGroups.length" class="fp-empty muted">
+          <template v-if="facetLoadError">
+            {{ t('demos.facetLoadFailed', '分面加载失败') }}
+            <button class="btn btn-sm btn-outline" type="button" @click="loadFacetKeys">{{ t('common.retry', '重试') }}</button>
+          </template>
+          <template v-else>{{ t('demos.noFacets', '暂无可用分面') }}</template>
+        </div>
         <template v-else>
           <template v-for="(g, gi) in panelGroups" :key="g.group.key">
             <!-- 技术键搜索框：悬在技术键段之前（该段唯一共享控件） -->
@@ -645,11 +670,18 @@ onBeforeUnmount(() => observer?.disconnect())
                   </button>
                   <template v-else>
                     <div v-for="vg in modelVendors" :key="vg.group" class="vendor-strip">
-                      <span class="vendor-strip-head" role="button" @click="toggleVendor(vg.group)">
-                        <span class="vendor-dot" :style="{ background: vendorDot(vg.group) }"></span>
+                      <button
+                        class="vendor-strip-head"
+                        type="button"
+                        data-reset
+                        :aria-expanded="vendorOpen(vg.group)"
+                        :aria-label="`${vendorLabel(vg.group)}：${vendorOpen(vg.group) ? t('demos.collapse', '收起') : t('demos.expand', '展开')}`"
+                        @click="toggleVendor(vg.group)"
+                      >
+                        <span class="vendor-dot" :style="{ background: vendorDot(vg.group) }" aria-hidden="true"></span>
                         <span class="vendor-strip-name">{{ vendorLabel(vg.group) }}</span>
                         <span class="vendor-strip-toggle">{{ vendorOpen(vg.group) ? t('demos.collapse', '收起') : t('demos.expand', '展开') }}</span>
-                      </span>
+                      </button>
                       <div v-if="vendorOpen(vg.group)" class="filter-row" style="margin: 0">
                         <button
                           v-for="v in vg.values"
@@ -716,7 +748,7 @@ onBeforeUnmount(() => observer?.disconnect())
                     >{{ p.label }}</button>
                   </div>
                   <div class="filter-row" style="margin: 0">
-                    <RangeSlider :min="intBounds(g.group).lo" :max="intBounds(g.group).hi" v-model="intRange[g.group.key]" />
+                    <RangeSlider :min="intBounds(g.group).lo" :max="intBounds(g.group).hi" :label="keyLabel(g.group.key, g.group.label)" v-model="intRange[g.group.key]" />
                     <button class="btn btn-sm btn-secondary" type="button" @click="applyIntRange(g.group); isMobile && closeFacet()">{{ t('demos.apply', '应用') }}</button>
                     <button v-if="activeRangeOf(g.group)" class="btn btn-sm btn-dark" type="button" @click="clearIntRange(g.group)">{{ t('demos.clearRange', '清除') }}</button>
                   </div>
@@ -1010,5 +1042,26 @@ span.fp-group-head {
   .fp-caret {
     transition: none;
   }
+}
+
+/* B2 键盘可达：.vendor-strip-head 的结构样式（flex/gap/padding/hover）在 styles/pages/demos.css，
+   冻结区不动；UA 默认按钮样式的清零收口在 styles/base/reset.css 的
+   `:where(button[data-reset])`（特异性 0，保证不会盖掉冻结区）。
+   此处只补冻结区没声明、而 button 默认会带上的两项——**不要**再写 all: unset / display /
+   align-items / gap / cursor：scoped 编译后特异性 0-2-1，会抹掉冻结区的
+   background(mint) / border-bottom / padding / gap(--sp-8)（2026-10-16 实测）。 */
+button[data-reset].vendor-strip-head {
+  width: 100%;
+  font: inherit;
+}
+/* 焦点可见性与站点一致：focus 走 hover 的纸深底（与 fp-group-head 的 hover/focus 处理同款） */
+@media (hover: hover) {
+  button[data-reset].vendor-strip-head:hover,
+  button[data-reset].vendor-strip-head:focus-visible {
+    background: var(--paper-deep, #f2eee6);
+  }
+}
+button[data-reset].vendor-strip-head:focus-visible {
+  background: var(--paper-deep, #f2eee6);
 }
 </style>
