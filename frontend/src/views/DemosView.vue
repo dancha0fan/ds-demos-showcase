@@ -13,6 +13,7 @@ import { useDemoFilters } from '../composables/useDemoFilters'
 import { useFacetDrawer } from '../composables/useFacetDrawer'
 import type { QuickPreset } from '../utils/demoFacets'
 import { t, keyLabel, vendorLabel } from '../i18n'
+import { isImeComposing } from '../utils/ime'
 import CoverImg from '../components/CoverImg.vue'
 import DemoCard from '../components/DemoCard.vue'
 import EmptyBox from '../components/EmptyBox.vue'
@@ -82,6 +83,8 @@ function setTaskGroup(on: boolean) {
   }
 }
 const demoGroups = computed(() => groupByTask(demos.value, preferTaskSlug.value || undefined))
+/** 一个真题组都没有时，「未挂题作品」组头就是对整页的无意义标注 */
+const hasTaskGroups = computed(() => demoGroups.value.some((g) => g.key))
 // 展开态按组键记忆；换筛选（reset）清空——旧展开态对新数据集没有意义
 const tgOpen = ref<Record<string, boolean>>({})
 function isTgOpen(g: TaskGroup<DemoSummary>) {
@@ -385,8 +388,10 @@ async function load(reset = false) {
       page_size: pageSize,
     })
     if (!gen.isCurrent(my)) return // 作废：已有更新的请求发出/返回，旧结果不许写
-    if (reset) demos.value = res.items
-    else demos.value = dedupeBySlug(demos.value, res.items).items // 兜底层：顺序稳定根修在 rs
+    if (reset) {
+      demos.value = res.items
+      tgOpen.value = {} // 新数据集，旧展开态没有意义
+    } else demos.value = dedupeBySlug(demos.value, res.items).items // 兜底层：顺序稳定根修在 rs
     if (res.random_seed) randomSeed.value = res.random_seed
     total.value = res.total
     page.value = p + 1
@@ -397,6 +402,8 @@ async function load(reset = false) {
   } catch (e) {
     if (!gen.isCurrent(my)) return
     error.value = (e as Error).message
+    // 换筛选失败时屏上还是上一组条件的旧结果：清掉，走空列表的 EmptyBox(error) + 重试
+    if (reset) demos.value = []
   } finally {
     if (gen.isCurrent(my)) {
       loading.value = false
@@ -408,13 +415,12 @@ async function load(reset = false) {
 function reset() {
   gen.invalidate() // 作废在途请求（含「加载更多」——否则它的响应会 append 到新筛选的列表上）
   refreshing.value = true
-  // 立即清空，显示明确加载态；不回顶，避免点击按钮时滚动条跳动
-  demos.value = []
+  // 旧结果留在屏上（压暗 + aria-busy + 状态条）直到新结果到达：清空会让网格塌成一行转圈再长回来，
+  // 每点一个筛选页面高度跳两次。不回顶。
   error.value = ''
   page.value = 1
   hasMore.value = true
   randomSeed.value = '' // 新的随机浏览段：重新领种子
-  tgOpen.value = {} // 新数据集，旧展开态没有意义
   void load(true)
 }
 
@@ -499,6 +505,7 @@ async function loadFacetKeys() {
   facetLoadError.value = false
   try {
     tagKeys.value = await api.listTagKeys()
+    initIntRanges(tagKeys.value, intBoundsOf)
   } catch {
     tagKeys.value = []
     facetLoadError.value = true
@@ -508,8 +515,8 @@ async function loadFacetKeys() {
 onMounted(async () => {
   // 从 URL query 还原状态
   applyRouteQuery()
-  await loadFacetKeys()
-  initIntRanges(tagKeys.value, intBoundsOf)
+  // 分面与列表互不依赖：并行发，别让首屏卡片多等一个往返
+  void loadFacetKeys()
   // 返回恢复：**先**读快照并把随机种子装回去，再发第 1 页请求。
   // 顺序是正确性的一部分（2026-10-16 实测）：若先 load(true) 再 pin 种子，第 1 页会用服务端
   // 新发的种子 S2、第 2..N 页才用离开时的 S1 —— 两套置换混排，重复件被 dedupeBySlug 吞掉，
@@ -549,7 +556,7 @@ onBeforeUnmount(() => observer?.disconnect())
 
 <template>
   <div class="route-page">  <PageHero>
-    <span class="eyebrow">{{ t('app.nav.demos', '作品库') }}</span>
+    <span class="eyebrow">{{ t('demos.eyebrow', 'AI 网页 Demo') }}</span>
     <h1 class="page-title">{{ t('app.nav.demos', '作品库') }}</h1>
     <p class="sub">{{ t('demos.sub', '搜索、筛选、浏览全部 AI 网页 Demo —— 支持按标签与热度检索。') }}</p>
     <span class="mini-stat"><b>{{ total }}</b> {{ t('demos.works', '件作品') }}</span>
@@ -561,8 +568,8 @@ onBeforeUnmount(() => observer?.disconnect())
       <div class="mode-tool">
         <span class="mode-rail-stamp">{{ t('demos.mode', '模式') }}</span>
         <div class="mode-rail" :class="{ prompt: cardMode === 'prompt' }" role="group" aria-label="卡片模式">
-          <button class="mode-rail-item" type="button" @click="setCardMode('normal')">{{ t('demos.normal', '常规') }}</button>
-          <button class="mode-rail-item" type="button" @click="setCardMode('prompt')">{{ t('demos.prompt', '提示词') }}</button>
+          <button class="mode-rail-item" type="button" :aria-pressed="cardMode === 'normal'" @click="setCardMode('normal')">{{ t('demos.normal', '常规') }}</button>
+          <button class="mode-rail-item" type="button" :aria-pressed="cardMode === 'prompt'" @click="setCardMode('prompt')">{{ t('demos.prompt', '提示词') }}</button>
           <span class="mode-rail-knob" :class="{ prompt: cardMode === 'prompt' }">
             {{ cardMode === 'prompt' ? t('demos.prompt', '提示词') : t('demos.normal', '常规') }}
           </span>
@@ -571,29 +578,35 @@ onBeforeUnmount(() => observer?.disconnect())
       </div>
 
       <div v-if="cardMode === 'normal'" class="tabs" style="margin: 0">
-        <button class="tab" :class="{ active: sort === 'newest' }" type="button" @click="sort = 'newest'; applySort()">{{ t('demos.newest', '最新') }}</button>
-        <button class="tab" :class="{ active: sort === 'popular' }" type="button" @click="sort = 'popular'; applySort()">{{ t('demos.hot', '最热') }}</button>
+        <button class="tab" :class="{ active: sort === 'newest' }" type="button" :aria-pressed="sort === 'newest'" @click="sort = 'newest'; applySort()">{{ t('demos.newest', '最新') }}</button>
+        <button class="tab" :class="{ active: sort === 'popular' }" type="button" :aria-pressed="sort === 'popular'" @click="sort = 'popular'; applySort()">{{ t('demos.hot', '最热') }}</button>
         <!-- 03 §4.3：「随机」在数据产品语境里像统计功能，「随便看看」表达消遣心智；移末位 -->
-        <button class="tab" :class="{ active: sort === 'random' }" type="button" @click="sort = 'random'; applySort()">{{ t('demos.casual', '随便看看') }}</button>
+        <button class="tab" :class="{ active: sort === 'random' }" type="button" :aria-pressed="sort === 'random'" @click="sort = 'random'; applySort()">{{ t('demos.casual', '随便看看') }}</button>
       </div>
-      <!-- 同题折叠开关（默认开，记忆）：分组只是呈现层，排序/筛选/分页语义不变 -->
+      <!-- 同题折叠（默认开，记忆）：分组只是呈现层，排序/筛选/分页语义不变。
+           做成开关而不是 .tab：黑底 .tab.active 与排序组同形，会被读成"第四种排序" -->
       <button
-        class="tab"
-        :class="{ active: taskGroupOn }"
+        class="tg-switch"
         type="button"
-        :aria-pressed="taskGroupOn"
+        role="switch"
+        :aria-checked="taskGroupOn"
         @click="setTaskGroup(!taskGroupOn)"
-      >{{ t('demos.taskGroup', '按题折叠') }}</button>
+      >
+        <span class="tg-switch-track" aria-hidden="true"><span class="tg-switch-knob"></span></span>
+        {{ t('demos.taskGroup', '按题折叠') }}
+      </button>
     </div>
 
-    <div class="toolbar">
+    <div class="toolbar demos-toolbar">
       <div class="search-box search-box--grow">
         <input
           v-model="q"
           class="input"
           type="search"
+          enterkeyhint="search"
           :placeholder="t('demos.searchPlaceholder', '搜索标题 / 描述 / 标签…（回车提交）')"
-          @keyup.enter="submitSearch"
+          @keydown.enter="!isImeComposing($event) && submitSearch()"
+          @search="!q && clearSearch()"
         />
         <button class="btn btn-secondary search-submit" type="button" @click="submitSearch">{{ t('demos.search', '搜索') }}</button>
       </div>
@@ -643,7 +656,7 @@ onBeforeUnmount(() => observer?.disconnect())
     </div>
 
     <!-- 热门快捷（保留在搜索行下，高频条件前置 03 §4.2-5） -->
-    <div v-if="hotChips.length" class="filter-row">
+    <div v-if="hotChips.length" class="filter-row hot-row">
       <span class="filter-label">{{ t('demos.hotChips', '热门') }}</span>
       <button
         v-for="g in hotChips"
@@ -659,7 +672,10 @@ onBeforeUnmount(() => observer?.disconnect())
     </div>
 
     <div class="facet-body" :class="{ 'facet-body--pinned': panelMode === 'pinned' }">
-      <div class="facet-main">
+      <div class="facet-main" :class="{ 'is-refreshing': refreshing && demos.length > 0 }" :aria-busy="loading">
+        <div v-if="refreshing && demos.length" class="refresh-flag">
+          <span class="refresh-pill" role="status"><span class="spinner"></span>{{ t('demos.refreshing', '正在刷新…') }}</span>
+        </div>
         <!-- 错误与空态分离（修复：原先 error 独立渲染，加载失败且列表为空时会同时显示错误横幅
              与「没有匹配的作品」+ 三个筛选出口，误导用户去放宽条件而非重试）。列表非空时
              （加载更多失败）保留顶部提示并给重试；列表为空且失败走上面的 EmptyBox(error)。 -->
@@ -709,7 +725,7 @@ onBeforeUnmount(() => observer?.disconnect())
               </span>
               <RouterLink class="tg-link" :to="`/tasks/${g.task!.slug}`">{{ t('demos.tgOpen', '题目页 →') }}</RouterLink>
             </div>
-            <div v-else class="tg-head tg-head--plain">
+            <div v-else-if="hasTaskGroups" class="tg-head tg-head--plain">
               <span class="tg-toggle tg-toggle--static">
                 <span class="tg-title">{{ t('demos.tgUngrouped', '未挂题作品') }}</span>
                 <span class="tg-count">{{ g.items.length }}</span>
@@ -945,6 +961,7 @@ onBeforeUnmount(() => observer?.disconnect())
   grid-template-columns: minmax(0, 1fr) 340px;
 }
 .facet-main {
+  position: relative;
   min-width: 0;
 }
 
@@ -1263,7 +1280,7 @@ span.tg-toggle--static {
   font-family: var(--font-body, monospace);
   font-size: var(--fs-11);
   font-weight: 700;
-  background: var(--yellow, #ffd93d);
+  background: var(--paper, #fff); /* P6：计数不用行动色 */
   color: var(--ink, #000);
   border: 2px solid var(--ink, #000);
   padding: 0 var(--sp-6);
@@ -1334,5 +1351,108 @@ button[data-reset].vendor-strip-head {
 }
 button[data-reset].vendor-strip-head:focus-visible {
   background: var(--paper-deep, #f2eee6);
+}
+
+/* ---- 同题折叠开关：轨道 + 方块滑钮（颜色 0ms 硬切，只有滑钮位移走 150ms） ---- */
+.tg-switch {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: var(--sp-8);
+  min-height: 44px;
+  padding: 0 var(--sp-4);
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: var(--fs-13);
+  font-weight: 700;
+  color: var(--ink, #000);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tg-switch:focus-visible {
+  outline: 3px solid var(--ink, #000);
+  outline-offset: 2px;
+}
+.tg-switch-track {
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 20px;
+  border: 2px solid var(--ink, #000);
+  background: var(--paper, #fff);
+}
+.tg-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  background: var(--ink, #000);
+  transition: transform var(--b-dur, 150ms) var(--b-ease, cubic-bezier(0, 0, 0.2, 1));
+}
+.tg-switch[aria-checked='true'] .tg-switch-track {
+  background: var(--yellow, #ffd93d);
+}
+.tg-switch[aria-checked='true'] .tg-switch-knob {
+  transform: translateX(16px);
+}
+
+/* ---- 换筛选时：旧结果压暗留在原位，状态条吸顶浮在结果上方（零高度，不推挤布局） ---- */
+.is-refreshing > .masonry,
+.is-refreshing > .tg-group {
+  opacity: 0.45;
+}
+.refresh-flag {
+  position: sticky;
+  top: var(--sp-12);
+  z-index: var(--z-local);
+  height: 0;
+  display: flex;
+  justify-content: center;
+}
+.refresh-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-8);
+  height: max-content;
+  padding: var(--sp-6) var(--sp-12);
+  background: var(--paper, #fff);
+  border: 2px solid var(--ink, #000);
+  box-shadow: var(--b-shadow);
+  font-size: var(--fs-12);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+@media (max-width: 720px) {
+  /* 搜索与「筛选」同一行：竖排时两条控件 + 视图栏把首屏占满，第一张卡片落在 900px 之外 */
+  .demos-toolbar {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: var(--sp-8);
+  }
+  .demos-toolbar .search-box {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .demos-toolbar .facet-btn {
+    flex: none;
+  }
+  /* 热门芯片单行横滑：换行时 6 个芯片占三行 */
+  .hot-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    padding-bottom: var(--sp-4);
+  }
+  .hot-row > * {
+    flex: none;
+  }
+  .tg-switch {
+    align-self: flex-start;
+  }
 }
 </style>

@@ -14,11 +14,13 @@ import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 import DshTrajectoryView from '../components/DshTrajectoryView.vue'
 import DemoCard from '../components/DemoCard.vue'
 import ModelChips from '../components/ModelChips.vue'
+import EmptyBox from '../components/EmptyBox.vue'
 import RatingWidget from '../components/RatingWidget.vue'
 import QuickComments from '../components/QuickComments.vue'
 import { parseDate, currentLocale } from '../utils/time'
 import { tagLabel } from '../utils/funMode'
 import { errorMessage } from '../utils/error'
+import { isImeComposing } from '../utils/ime'
 import { useLocalHistory } from '../composables/useLocalHistory'
 import { useDismissOnEsc } from '../composables/useDismissOnEsc'
 import type { CollectionOut, FavoriteStatus } from '../api/types'
@@ -204,14 +206,18 @@ function toggleFullscreen() {
 }
 // 动作条是 fixed，只遮「main 里的内容」垫不住 App 级 footer（footer 在 route-page 之外，
 // App.vue 红线不可动）→ 页脚抬升用 body padding 精确挂载/卸载（组件卸载即还原，无样式泄漏）
-// P1 底栏契约：垫底 = 底栏真实高 + 动作条高，两者都走 token，不再各写各的字面量
-// （原来 60px + App.vue 的 56px，且各带一份 safe-area → 重复垫了安全区）
+// 详情页不挂全站底栏（meta.hideTabBar，App 壳也不再为它让位）→ 垫底 = 动作条高 + 安全区
 const MQL_BAR = '(max-width: 720px)'
 const mqlBar = window.matchMedia(MQL_BAR)
 function syncBodyPad() {
   document.body.style.paddingBottom = mqlBar.matches
-    ? 'calc(var(--tabbar-h-safe) + var(--mbar-h) + var(--tabbar-fab-overhang))'
+    ? 'calc(var(--mbar-h) + env(safe-area-inset-bottom, 0px))'
     : ''
+}
+// 站内进来的（history.state.back 由 vue-router 写入）退回原处并恢复滚动；直链/新标签打开则去作品库
+function goBack() {
+  if (window.history.state?.back) router.back()
+  else void router.push('/demos')
 }
 onMounted(() => {
   mqlBar.addEventListener('change', syncBodyPad)
@@ -476,12 +482,30 @@ onMounted(load)
 <template>
   <div class="route-page">  <section v-if="loading" class="loading-row"><span class="spinner"></span> {{ t('demo.loading', '加载 Demo…') }}</section>
 
-  <section v-else-if="error" class="empty-box">{{ error }}</section>
+  <EmptyBox v-else-if="error" kind="error" :text="error">
+    <template #action>
+      <button class="btn btn-sm btn-outline" type="button" @click="load">{{ t('common.retry', '重试') }}</button>
+      <RouterLink class="btn btn-sm btn-outline" to="/demos">{{ t('demo.backToLib', '返回作品库') }}</RouterLink>
+    </template>
+  </EmptyBox>
 
   <template v-else-if="demo">
     <!-- v2 重设计第 1 期：作品本体（左，sticky）+ 事实卡（右）。
          依据：详情页第一任务是"让它跑起来"，评分是社区唯一信号源必须常驻（Demo页重设计.md §3） -->
     <div class="dv-shell" :class="{ 'facts-collapsed': !factsOpen }">
+      <!-- 身份头：窄屏与信息卡收起态的页首（先回答"这是什么"，再给预览）；
+           宽屏信息卡展开时由卡内身份组承担，这里 display:none —— 同一时刻只露一个 h1 -->
+      <header class="dv-ident">
+        <h1 class="dv-title">{{ demo.title }}</h1>
+        <div v-if="demo.models?.length" class="dv-byline">
+          <ModelChips :models="demo.models" :max="6" size="md" peek @peek="(s: string) => (peekTarget = { kind: 'model', slug: s })" />
+        </div>
+        <div class="dv-by">
+          <RouterLink v-if="demo.author_id == null" to="/author/public">{{ demo.author }}</RouterLink>
+          <RouterLink v-else :to="`/user/${demo.author}`">{{ demo.author }}</RouterLink>
+          <span class="muted">{{ t('demo.created', '创建') }} · {{ parseDate(demo.created_at).toLocaleDateString(currentLocale()) }}</span>
+        </div>
+      </header>
       <!-- M1-fix-8 修法 A（05 §3.1）：row1 包装层收窄 sticky 容纳块——
            dv-stage 的 sticky 约束块从 dv-shell（跨 row1+row2）变为 row1 包装层，
            滚到 dv-story 时预览被自然推出视口（标准释放），几何上不再与 row2 重叠 -->
@@ -614,7 +638,7 @@ onMounted(load)
           </div>
 
           <!-- 分组：身份 → 热度 → 评分 → 词表 → 动作 → 档案摘要 -->
-          <div class="dv-group">
+          <div class="dv-group dv-group--ident">
             <h1 class="dv-title">{{ demo.title }}</h1>
             <!-- v2：模型一等地位（新标签打开，不把作者从自己的作品上赶走） -->
             <div v-if="demo.models?.length" class="dv-byline">
@@ -688,7 +712,7 @@ onMounted(load)
                   class="input"
                   maxlength="60"
                   :placeholder="t('fav.new', '新建收藏夹')"
-                  @keydown.enter.prevent="createFavFromPanel"
+                  @keydown.enter="!isImeComposing($event) && createFavFromPanel()"
                 />
                 <button class="btn btn-sm btn-primary" type="button" @click="createFavFromPanel">{{ t('common.create', '创建') }}</button>
               </div>
@@ -708,7 +732,7 @@ onMounted(load)
           </p>
         </aside>
         <!-- 收起后必须留一条"回得来"的路：细轨上带分数与标题，一眼知道还能展开什么 -->
-        <button v-else key="rail" class="dv-rail" type="button" :aria-expanded="false" :title="t('demo.showFactsTip', '展开信息卡（快捷键 I）')" @click="toggleFacts(true)">
+        <button v-else key="rail" class="dv-rail page-float" type="button" :aria-expanded="false" :title="t('demo.showFactsTip', '展开信息卡（快捷键 I）')" @click="toggleFacts(true)">
           <span class="dv-rail-label">{{ t('demo.expand', '信息') }}</span>
           <span class="dv-rail-score">{{ demo.rating_count ? Number(demo.rating_avg || 0).toFixed(1) : '—' }}</span>
           <span class="dv-rail-title">{{ demo.title }}</span>
@@ -907,10 +931,15 @@ onMounted(load)
 
     <PeekDrawer :target="peekTarget" @close="peekTarget = null" @navigate="peekNavigate" />
 
-    <!-- M1-B 移动动作条（03 §6.1 移动线框）：≤720 底部固定；5 键全 ≥44px；主动作(全屏)居中；
-         safe-area 垫底；仅 web 型（zip/link 站立卡自带各自 CTA，动作条只服务可玩预览） -->
-    <nav v-if="demo.demo_type === 'web'" class="dv-mbar" aria-label="预览动作">
-      <button class="dv-mbar-btn" type="button" @click="restartPreview">
+    <!-- M1-B 移动动作条（03 §6.1 移动线框）：≤720 贴底固定、自垫 safe-area；键全 ≥44px。
+         详情页不挂全站底栏（meta.hideTabBar），所以动作条对所有类型都渲染，且首键是返回；
+         重开/全屏/外部打开只服务可玩预览，仅 web 型出现，主动作(全屏)居五个动作之中 -->
+    <nav class="dv-mbar page-float" :aria-label="t('demo.barLabel', '作品动作')">
+      <button class="dv-mbar-btn" type="button" @click="goBack">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" /></svg>
+        <span>{{ t('demo.barBack', '返回') }}</span>
+      </button>
+      <button v-if="demo.demo_type === 'web'" class="dv-mbar-btn" type="button" @click="restartPreview">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 1-2.2-4.6" fill="none" stroke="currentColor" stroke-width="2" /><path d="M16 2v4h-4" fill="none" stroke="currentColor" stroke-width="2" /></svg>
         <span>{{ t('demo.barRestart', '重开') }}</span>
       </button>
@@ -918,11 +947,11 @@ onMounted(load)
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L2.2 8.2l5.4-.8z" fill="currentColor" /></svg>
         <span>{{ t('demo.barRate', '评分') }}</span>
       </button>
-      <button class="dv-mbar-btn dv-mbar-main" type="button" :aria-pressed="fsActive" @click="toggleFullscreen">
+      <button v-if="demo.demo_type === 'web'" class="dv-mbar-btn dv-mbar-main" type="button" :aria-pressed="fsActive" @click="toggleFullscreen">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 7V3h4M13 3h4v4M17 13v4h-4M7 17H3v-4" fill="none" stroke="currentColor" stroke-width="2" /></svg>
         <span>{{ t('demo.barFullscreen', '全屏') }}</span>
       </button>
-      <button class="dv-mbar-btn" type="button" @click="openExternal">
+      <button v-if="demo.demo_type === 'web'" class="dv-mbar-btn" type="button" @click="openExternal">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 4H4v12h12v-4" fill="none" stroke="currentColor" stroke-width="2" /><path d="M11 3h6v6M17 3l-8 8" fill="none" stroke="currentColor" stroke-width="2" /></svg>
         <span>{{ t('demo.barExternal', '外部打开') }}</span>
       </button>
@@ -1095,7 +1124,7 @@ onMounted(load)
 
 /* ============================================================
    M1-B 移动动作条（03 §6.1 移动线框）——styles/ 冻结令：全 scoped。
-   桌面 display:none（纯 CSS 门控，不依赖 JS 视口判断）；≤720 五键网格。
+   桌面 display:none（纯 CSS 门控，不依赖 JS 视口判断）；≤720 返回键 + 动作键网格。
    ============================================================ */
 .dv-mbar {
   display: none;
@@ -1103,18 +1132,19 @@ onMounted(load)
 @media (max-width: 720px) {
   .dv-mbar {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    /* 返回键窄列，其余动作等分（web 型 5 个，其他类型 2 个） */
+    grid-template-columns: 52px;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
     position: fixed;
     left: 0;
     right: 0;
-    /* P1 底栏契约：动作条**就位于底栏之上**（再让开中央 FAB 的上探量），
-       不再与底栏抢 bottom:0。原来两者 top/bottom 完全重合（实测 786/844），
-       底栏 z900 压住动作条 z60 → 5 个主操作全不可见。 */
-    bottom: calc(var(--tabbar-h-safe) + var(--tabbar-fab-overhang));
+    /* 详情页不挂全站底栏（meta.hideTabBar）→ 动作条自己贴底、自己垫安全区 */
+    bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
     z-index: var(--z-dropdown);
     border-top: var(--border-w, 4px) solid var(--ink, #000);
     background: var(--paper, #fff);
-    /* 已不在屏幕最底缘 → 不再吃安全区（安全区由底栏承担，重复垫会让动作条虚高） */
   }
   /* 页脚不被遮的垫底走 body padding（脚本挂载/卸载，见 syncBodyPad——footer 在 App.vue，红线不可动） */
 }

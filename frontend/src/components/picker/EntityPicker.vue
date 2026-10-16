@@ -9,6 +9,7 @@
 defineOptions({ name: 'EntityPicker' })
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { t } from '../../i18n'
+import { isImeComposing } from '../../utils/ime'
 import { searchEntities, normalizeKind, type EntityPick, type PickerKind, type PickerSource } from './pickerSources'
 
 const props = withDefaults(
@@ -209,6 +210,7 @@ function manualSlugPick() {
 
 // ---- 键盘（⇅↵Esc；dropdown 焦点在输入框内循环高亮）----
 function onKeydown(e: KeyboardEvent) {
+  if (isImeComposing(e)) return
   const list = visible.value
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     if (!list.length) return

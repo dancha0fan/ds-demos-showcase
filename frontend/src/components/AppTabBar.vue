@@ -56,7 +56,10 @@ onMounted(() => {
     </RouterLink>
     <RouterLink class="tb tb-me" :class="{ active: meActive }" :to="meTo">
       {{ auth.isLoggedIn() ? t('app.tabbar.me', '我的') : t('app.tabbar.login', '登录') }}
-      <span v-if="auth.isLoggedIn() && notif.unreadCount > 0" class="tab-dot" aria-hidden="true"></span>
+      <template v-if="auth.isLoggedIn() && notif.unreadCount > 0">
+        <span class="tb-dot" aria-hidden="true"></span>
+        <span class="sr-only">{{ t('home.side.unread', '{n} 条未读', { n: notif.unreadCount }) }}</span>
+      </template>
     </RouterLink>
   </nav>
 </template>

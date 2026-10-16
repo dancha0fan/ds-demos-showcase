@@ -128,7 +128,7 @@ const historyOff = computed(() => loggedIn.value && auth.user?.history_enabled =
 <template>
   <div class="route-page">
     <PageHero>
-      <span class="eyebrow">{{ t('hist.title', '浏览历史') }}</span>
+      <span class="eyebrow">{{ t('app.tabbar.me', '我的') }}</span>
       <h1 class="page-title">{{ t('hist.title', '浏览历史') }}</h1>
       <p class="hint" style="margin-top: var(--sp-10)">
         {{ t('hist.note', '未登录时只记在这台设备；登录后同步到账号（可在设置里关闭）。') }}

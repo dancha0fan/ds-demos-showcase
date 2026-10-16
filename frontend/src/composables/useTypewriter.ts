@@ -1,4 +1,4 @@
-import { getCurrentInstance, onBeforeUnmount, ref, watch, type Ref } from 'vue'
+import { getCurrentInstance, onActivated, onBeforeUnmount, onDeactivated, ref, watch, type Ref } from 'vue'
 
 /**
  * 打字机循环（RF-4h：从 HomeView 的 setup 里抽出）。
@@ -21,6 +21,11 @@ export interface TypewriterOptions {
   start?: boolean
 }
 
+/** 减弱动效：不逐字打、不轮换（自动轮换的文字同样是持续运动），只给一句静态文案 */
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
 export function useTypewriter(phrases: Ref<string[]>, opts: TypewriterOptions = {}) {
   const { typeMs = 42, eraseMs = 18, holdMs = 2600, start = true } = opts
   const text = ref('')
@@ -29,9 +34,17 @@ export function useTypewriter(phrases: Ref<string[]>, opts: TypewriterOptions = 
   let char = 0
   let deleting = false
   let running = false
+  let paused = false
 
   function pool(): string[] {
     return phrases.value.length ? phrases.value : ['']
+  }
+
+  function clearTimer() {
+    if (timer) {
+      clearTimeout(timer)
+      timer = null
+    }
   }
 
   function tick() {
@@ -59,31 +72,54 @@ export function useTypewriter(phrases: Ref<string[]>, opts: TypewriterOptions = 
   function startLoop() {
     if (running) return
     running = true
+    paused = false
     idx = 0
     char = 0
     deleting = false
+    if (prefersReducedMotion()) {
+      const list = pool()
+      text.value = list[Math.floor(Math.random() * list.length)]
+      return
+    }
     text.value = ''
     tick()
   }
 
   function stopLoop() {
     running = false
-    if (timer) {
-      clearTimeout(timer)
-      timer = null
-    }
+    paused = false
+    clearTimer()
+  }
+
+  /** KeepAlive 切走时暂停（保留当前字位），回来从原处接着打 */
+  function pause() {
+    if (!running || paused) return
+    paused = true
+    clearTimer()
+  }
+  function resume() {
+    if (!running || !paused) return
+    paused = false
+    if (prefersReducedMotion()) return
+    timer = setTimeout(tick, deleting ? eraseMs : typeMs)
   }
 
   if (start) startLoop()
 
   // 词池换了（切语言/整活模式）→ 从头重打，避免用旧词的下标切新词
   watch(phrases, () => {
+    const wasPaused = paused
     stopLoop()
     startLoop()
+    if (wasPaused) pause()
   })
 
-  // 只在组件上下文注册清理（测试/非组件环境调用时不打 Vue 警告）
-  if (getCurrentInstance()) onBeforeUnmount(stopLoop)
+  // 只在组件上下文注册生命周期（测试/非组件环境调用时不打 Vue 警告）
+  if (getCurrentInstance()) {
+    onBeforeUnmount(stopLoop)
+    onDeactivated(pause)
+    onActivated(resume)
+  }
 
-  return { text, start: startLoop, stop: stopLoop }
+  return { text, start: startLoop, stop: stopLoop, pause, resume }
 }

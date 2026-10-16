@@ -5,6 +5,7 @@ import { useUiStore } from '../stores/ui'
 import type { TagKeyValue, TagMergeResult } from '../api/types'
 import { groupedTagValues } from '../utils/tagGroups'
 import { tagLabel } from '../utils/funMode'
+import { isImeComposing } from '../utils/ime'
 import TagTip from './TagTip.vue'
 
 const props = withDefaults(
@@ -201,7 +202,7 @@ async function executeMerge() {
         <div class="group-card-head">
           <b>{{ g.group }}</b><span class="count">{{ g.values.length }}</span>
           <div v-if="mode === 'admin' && g.group !== '未分组'" class="filter-row" style="margin: 0; margin-left: auto">
-            <input v-model="renameDraft[g.group]" class="input" style="max-width: 90px; padding: var(--sp-2) var(--sp-6)" placeholder="新名" @keyup.enter="renameGroup(g.group)" />
+            <input v-model="renameDraft[g.group]" class="input" style="max-width: 90px; padding: var(--sp-2) var(--sp-6)" placeholder="新名" @keydown.enter="!isImeComposing($event) && renameGroup(g.group)" />
             <button class="btn btn-sm btn-outline" type="button" @click="renameGroup(g.group)">重命名</button>
             <button class="btn btn-sm btn-dark" type="button" @click="clearGroup(g.group)">清除</button>
           </div>
@@ -230,7 +231,7 @@ async function executeMerge() {
             class="input"
             style="max-width: 180px; padding: var(--sp-2) var(--sp-6)"
             placeholder="输入值回车归组"
-            @keyup.enter="addToGroup(g.group)"
+            @keydown.enter="!isImeComposing($event) && addToGroup(g.group)"
           />
           <button class="btn btn-sm btn-outline" type="button" @click="addToGroup(g.group)">添加</button>
         </div>

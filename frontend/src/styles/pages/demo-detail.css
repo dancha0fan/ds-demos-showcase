@@ -18,6 +18,27 @@
 .dv-shell.facts-collapsed {
   grid-template-columns: minmax(0, 1fr);
 }
+/* 身份头（标题/模型/署名）：宽屏信息卡展开时由卡内身份组承担，这里隐藏——同一时刻只露一个 h1。
+   收起态信息卡整块不渲染，没有它页面就没有 h1、也看不到作品叫什么 */
+.dv-ident {
+  display: none;
+  min-width: 0;
+}
+.dv-ident .dv-title {
+  font-size: var(--fs-26);
+}
+.dv-shell.facts-collapsed > .dv-ident {
+  display: block;
+  grid-column: 1;
+  grid-row: 1;
+}
+/* 三个主列成员显式落行：dv-story 本身写死 row 2，身份头插进来后预览不能再靠自动放置 */
+.dv-shell.facts-collapsed > .dv-row-preview {
+  grid-row: 2;
+}
+.dv-shell.facts-collapsed > .dv-story {
+  grid-row: 3;
+}
 .dv-stage {
   grid-column: 1;
   grid-row: 1;
@@ -246,6 +267,7 @@
 .dv-facts-head { display: flex; align-items: center; gap: var(--sp-10); }
 .dv-facts-head .eyebrow { flex: 1; }
 .dv-collapse {
+  margin-left: auto;
   font: inherit;
   font-size: var(--fs-11);
   font-weight: 800;
@@ -350,8 +372,10 @@
     max-height: 62vh;
     box-sizing: border-box;
   }
-  /* 手机上"这是什么"比"立刻玩"更重要：标题/信息卡先于预览（order -1 既有语义） */
-  .dv-rail,
-  .dv-facts { order: -1; }
+  /* 手机上"这是什么"先于"立刻玩"：由紧凑的身份头回答（标题/模型/署名），预览紧随其后；
+     完整信息卡（评分/标签/动作，约 780px 高）排到预览之后——放在前面会把预览整块推出首屏 */
+  .dv-ident { display: block; }
+  .dv-ident .dv-title { font-size: var(--fs-22); }
+  .dv-facts .dv-group--ident { display: none; }
 }
 

@@ -11,6 +11,7 @@ import type { EntityPick } from '../picker/pickerSources'
 import EmptyBox from '../EmptyBox.vue'
 import { modelDisplay } from '../../utils/modelDisplay'
 import { t } from '../../i18n'
+import { isImeComposing } from '../../utils/ime'
 
 const ui = useUiStore()
 
@@ -162,7 +163,7 @@ async function removeAlias(alias: string) {
               :placeholder="t('admin.alias.addPh', '新增写法，如 DSV4-Flash')"
               maxlength="128"
               style="max-width: 230px"
-              @keyup.enter="addAlias"
+              @keydown.enter="!isImeComposing($event) && addAlias()"
             />
             <button class="btn btn-sm btn-primary" type="button" :disabled="adding || !newAlias.trim()" @click="addAlias">
               {{ adding ? t('admin.alias.adding', '登记中…') : t('admin.alias.addBtn', '登记别名') }}
@@ -177,7 +178,7 @@ async function removeAlias(alias: string) {
               :placeholder="t('admin.alias.slugPh', '新 slug（ASCII，如 dsv4-flash）')"
               maxlength="100"
               style="max-width: 230px"
-              @keyup.enter="saveSlug"
+              @keydown.enter="!isImeComposing($event) && saveSlug()"
             />
             <button class="btn btn-sm btn-outline" type="button" :disabled="savingSlug || !slugDraft.trim() || slugDraft.trim() === detail.slug" @click="saveSlug">
               {{ savingSlug ? t('admin.alias.slugSaving', '改中…') : t('admin.alias.slugBtn', '改 slug') }}

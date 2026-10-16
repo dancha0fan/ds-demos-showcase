@@ -9,6 +9,7 @@ import { useTypewriter } from '../src/composables/useTypewriter'
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 describe('useTypewriter：逐字 → 停顿 → 退格 → 换句', () => {
@@ -87,5 +88,47 @@ describe('useTypewriter：逐字 → 停顿 → 退格 → 换句', () => {
     expect(text.value).toBe('b') // 立即从新池第一字重打
     await vi.advanceTimersByTimeAsync(10)
     expect(text.value).toBe('bb')
+  })
+})
+
+describe('useTypewriter：KeepAlive 暂停与减弱动效', () => {
+  it('pause() 冻结在当前字位，resume() 从原处接着打（不从头重来）', async () => {
+    vi.useFakeTimers()
+    const { text, pause, resume } = useTypewriter(ref(['abcd']), { typeMs: 10, eraseMs: 5, holdMs: 50 })
+    await vi.advanceTimersByTimeAsync(10)
+    expect(text.value).toBe('ab')
+    pause()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(text.value).toBe('ab')
+    resume()
+    await vi.advanceTimersByTimeAsync(10)
+    expect(text.value).toBe('abc')
+  })
+
+  it('暂停期间换词池：重打但保持暂停，resume 后才动', async () => {
+    vi.useFakeTimers()
+    const phrases = ref(['aaa'])
+    const { text, pause, resume } = useTypewriter(phrases, { typeMs: 10, eraseMs: 5, holdMs: 50 })
+    pause()
+    phrases.value = ['xy']
+    await nextTick()
+    expect(text.value).toBe('x')
+    await vi.advanceTimersByTimeAsync(500)
+    expect(text.value).toBe('x')
+    resume()
+    await vi.advanceTimersByTimeAsync(10)
+    expect(text.value).toBe('xy')
+  })
+
+  it('prefers-reduced-motion：直接给一句完整静态文案，之后不再变化', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('window', { matchMedia: (q: string) => ({ matches: q.includes('reduce') }) })
+    const pool = ['第一句', '第二句']
+    const { text, resume } = useTypewriter(ref(pool), { typeMs: 10, eraseMs: 5, holdMs: 20 })
+    expect(pool).toContain(text.value)
+    const shown = text.value
+    resume()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(text.value).toBe(shown)
   })
 })

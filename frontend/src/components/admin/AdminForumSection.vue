@@ -7,6 +7,7 @@ import type { ForumReply, ForumReport, ForumTopic } from '../../api/types'
 import ForumTopicEditModal from './ForumTopicEditModal.vue'
 import PaginationBar from '../PaginationBar.vue'
 import { parseDate } from '../../utils/time'
+import { isImeComposing } from '../../utils/ime'
 
 const ui = useUiStore()
 
@@ -166,7 +167,7 @@ onMounted(() => {
 
     <template v-if="forumSub === 'topics'">
       <div class="filter-row" style="margin-bottom: var(--sp-12); flex-wrap: wrap">
-        <input v-model="topicQuery" class="input" type="search" placeholder="搜标题或正文…" style="max-width: 220px" @keyup.enter="topicSearch" />
+        <input v-model="topicQuery" class="input" type="search" placeholder="搜标题或正文…" style="max-width: 220px" @keydown.enter="!isImeComposing($event) && topicSearch()" />
         <select v-model="topicStatusFilter" class="input" style="max-width: 120px" @change="topicSearch">
           <option value="">全部状态</option>
           <option value="normal">正常</option>
@@ -227,7 +228,7 @@ onMounted(() => {
 
     <template v-else-if="forumSub === 'replies'">
       <div class="filter-row" style="margin-bottom: var(--sp-12); flex-wrap: wrap">
-        <input v-model="forumReplyQuery" class="input" type="search" placeholder="搜回复内容或主题标题…" style="max-width: 260px" @keyup.enter="forumSelectReplies" />
+        <input v-model="forumReplyQuery" class="input" type="search" placeholder="搜回复内容或主题标题…" style="max-width: 260px" @keydown.enter="!isImeComposing($event) && forumSelectReplies()" />
         <select v-model="forumReplyStatus" class="input" style="max-width: 140px" @change="forumSelectReplies">
           <option value="">全部状态</option>
           <option value="reviewing">待审</option>

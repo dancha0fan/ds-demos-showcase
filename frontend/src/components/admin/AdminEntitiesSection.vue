@@ -16,6 +16,7 @@ import AdminEntityDetailSection from './AdminEntityDetailSection.vue'
 import EntityPicker from '../picker/EntityPicker.vue'
 import type { EntityPick } from '../picker/pickerSources'
 import { t } from '../../i18n'
+import { isImeComposing } from '../../utils/ime'
 
 type Facet = 'model' | 'task' | 'tag'
 
@@ -261,7 +262,7 @@ watch(
         >
           {{ t(f[1], f[2]) }}
         </button>
-        <input v-model="q" class="input" style="max-width: 220px" :placeholder="t('admin.entities.searchPh', '按名称/slug 过滤…')" @keyup.enter="load" />
+        <input v-model="q" class="input" style="max-width: 220px" :placeholder="t('admin.entities.searchPh', '按名称/slug 过滤…')" @keydown.enter="!isImeComposing($event) && load()" />
         <select v-if="facet !== 'tag'" v-model="status" class="input" style="max-width: 140px" @change="load">
           <option value="">{{ t('admin.entities.statusAll', '全部状态') }}</option>
           <option v-for="(n, s) in statusCounts" :key="s" :value="s">{{ statusLabel(String(s)) }} <template v-if="n">({{ n }})</template></option>
@@ -275,7 +276,7 @@ watch(
       <!-- KB-28 新建模型表单：名称必填；厂商决定 family 兜底节点；建完同步词表 + 落审计 -->
       <div v-if="modelFormOpen && facet === 'model'" class="kc-task-form card card-default" style="margin-bottom: var(--sp-14)">
         <div class="filter-row" style="margin: 0 0 var(--sp-10); flex-wrap: wrap">
-          <label class="kc-inline"><span class="kc-k">{{ t('admin.kc.fName', '名称') }}</span><input v-model="modelForm.name" class="input" style="max-width: 260px" :placeholder="t('admin.kc.modelNamePh', '型号名（必填，如 dsv4-flash）')" @keyup.enter="createModel" /></label>
+          <label class="kc-inline"><span class="kc-k">{{ t('admin.kc.fName', '名称') }}</span><input v-model="modelForm.name" class="input" style="max-width: 260px" :placeholder="t('admin.kc.modelNamePh', '型号名（必填，如 dsv4-flash）')" @keydown.enter="!isImeComposing($event) && createModel()" /></label>
           <label class="kc-inline"><span class="kc-k">{{ t('admin.kc.fVendor', '厂商') }}</span><input v-model="modelForm.vendor" class="input" style="max-width: 180px" :placeholder="t('admin.kc.modelVendorPh', '可选，如 DeepSeek')" /></label>
           <label class="kc-inline"><span class="kc-k">{{ t('admin.kc.fStatus', '状态') }}</span>
             <select v-model="modelForm.status" class="input" style="max-width: 160px">

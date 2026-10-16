@@ -11,6 +11,7 @@ import { fmtTime, auditActionLabel } from '../../utils/adminLabels'
 import LoadingRow from '../LoadingRow.vue'
 import EmptyBox from '../EmptyBox.vue'
 import { t } from '../../i18n'
+import { isImeComposing } from '../../utils/ime'
 
 // RF-3：样板收进 useAdminLoader（fetcher 读取当前筛选与页码；翻页/筛选后手动调 load）
 const { data, loading, error, load } = useAdminLoader({
@@ -76,8 +77,8 @@ function fmt(v: unknown): string {
         <option value="">{{ t('admin.audit.allEntities', '全部对象') }}</option>
         <option v-for="e in data?.entity_types || []" :key="e" :value="e">{{ e }}</option>
       </select>
-      <input v-model="filters.entity_id" class="input" type="number" :placeholder="t('admin.audit.entityIdPh', '对象 ID')" style="max-width: 110px" @keyup.enter="search" />
-      <input v-model="filters.q" class="input" :placeholder="t('admin.audit.reasonPh', '按说明搜关键词…')" style="max-width: 220px" @keyup.enter="search" />
+      <input v-model="filters.entity_id" class="input" type="number" :placeholder="t('admin.audit.entityIdPh', '对象 ID')" style="max-width: 110px" @keydown.enter="!isImeComposing($event) && search()" />
+      <input v-model="filters.q" class="input" :placeholder="t('admin.audit.reasonPh', '按说明搜关键词…')" style="max-width: 220px" @keydown.enter="!isImeComposing($event) && search()" />
       <button class="btn btn-sm btn-primary" type="button" @click="search">{{ t('common.search', '搜索') }}</button>
       <button class="btn btn-sm btn-secondary" type="button" :disabled="loading" @click="load">{{ t('common.refresh', '刷新') }}</button>
       <span class="mini-stat"><b>{{ total }}</b> {{ t('admin.audit.records', '条记录') }}</span>

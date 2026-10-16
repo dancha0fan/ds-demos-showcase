@@ -187,11 +187,18 @@
 /* 论坛斜角入口 + 飞入接管 */
 .forum-peek {
   position: fixed;
-  right: -68px;
+  /* 横向锚版心右缘（原 right:-68px 锚视口：1920 宽时离内容 230px 孤悬）。
+     版心外留白不够时退回视口右缘、露出 84px（= 原件 152 宽藏 68）；fixed 下 left/padding 的 % 与 --w-shell 都按视口宽解析 */
+  --peek-anchor: calc(50% + var(--w-shell) / 2 + var(--sp-16));
+  left: min(var(--peek-anchor), calc(100% - 84px));
+  width: max-content; /* 只定 left 时 fixed 盒按"left 到视口右缘"收缩，纸条会被挤成两行 */
   top: 30%;
   z-index: var(--z-float);
-  transform: rotate(-6deg);
-  padding: var(--sp-12) 80px var(--sp-12) var(--sp-16);
+  /* 倾斜用独立 rotate 属性：.b-lift 的 hover/active 写的是 transform，写在 transform 里会被整条替换（悬停时摆正） */
+  rotate: -6deg;
+  /* 右侧 80px 是藏在视口外、悬停才滑出来的余量；版心外留白 (100% - --w-shell)/2 超过 100px 后线性收回到 16px，
+     宽屏整张纸条可见时右边不拖一截空白（不用断点：1600 不在断点白名单里） */
+  padding: var(--sp-12) clamp(var(--sp-16), calc(180px - (100% - var(--w-shell)) / 2), 80px) var(--sp-12) var(--sp-16);
   /* T16（M4-2a）：牛皮纸件跨主题常驻（首页右缘），原绑 --ink 在墨黑主题翻成暖白——
      暖白字/边/影贴牛皮纸=不可见（暗色盲区复盘实锤）。改绑 --text-forum（论坛常量墨棕），
      双主题可读；纸白主题下黑→墨棕=论坛件语义归位（论坛孤岛家具用论坛自己的墨色）。 */
@@ -201,8 +208,9 @@
   font-size: var(--fs-14);
   font-weight: 800;
   color: var(--text-forum);
+  text-decoration: none; /* 是 <a href="/forum">（可中键/新标签打开），不要链接下划线 */
   cursor: pointer;
-  transition: right var(--b-dur) var(--b-ease), transform var(--b-dur) var(--b-ease); /* R7：background 剥离 */
+  transition: left var(--b-dur) var(--b-ease), transform var(--b-dur) var(--b-ease), translate var(--b-dur) var(--b-ease), box-shadow var(--b-dur) var(--b-ease); /* R7：background 剥离 */
 
   /* 交互物理在微交互库（components/lift.css）：本处只声明档位。
      hover 档按"静止档 ×1.5"表取令牌；压平位移 = 同档偏移（Rule 01）。 */
@@ -211,8 +219,10 @@
   --lift-flat: var(--sh-off-md);
   box-shadow: var(--lift-sh);
 }
+/* 悬停滑出：露出 84 → 138px（= 原 right: -68px → -14px）；留白够、纸条已整张可见时 min() 落在锚点，不再滑。
+   滑出走 left 而非 translate：translate 的 % 按自身宽解析，算不出"还藏着多少"；也不和库的按下 translate 抢 */
 .forum-peek:hover {
-  right: -14px;
+  left: min(var(--peek-anchor), calc(100% - 138px));
   background: var(--yellow);
 }
 .forum-takeover {
@@ -245,17 +255,21 @@
 }
 @media (max-width: 720px) {
   .forum-peek {
+    left: auto;
     right: 10px;
     top: auto;
     /* T9 微适配（唯一偏离原件处）：原件 bottom:16px 预表 M2-1 TabBar——
        抬到 TabBar(56px+safe-area) 上方 12px，防遮挡；桌面档逐字未动 */
-    bottom: calc(56px + env(safe-area-inset-bottom) + 12px);
-    transform: rotate(-3deg);
+    bottom: calc(var(--tabbar-h-safe) + 12px);
+    rotate: -3deg;
     padding: var(--sp-8) var(--sp-14);
-    box-shadow: 3px 3px 0 0 var(--ink);
+    /* 3px 档 = @720 的 --sh-off-lg；影色同桌面绑 --text-forum（--ink 在墨黑主题是暖白） */
+    --lift-sh: var(--sh-off-lg) 0 0 var(--text-forum);
+    --lift-sh-hover: var(--sh-off-hov-lg) 0 0 var(--text-forum);
+    --lift-flat: var(--sh-off-lg);
   }
   .forum-peek:hover {
-    right: 10px;
+    left: auto;
   }
 }
 /* T9 微适配：12.4 reduce 运动退场（接管=页面级转场，随 site 律退场；原件先于该律） */

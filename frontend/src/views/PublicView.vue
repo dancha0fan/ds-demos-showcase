@@ -25,8 +25,8 @@ onMounted(() => {
 
 <template>
   <div class="route-page">  <PageHero>
-    <span class="eyebrow">{{ t('public.eyebrow', '公开用户') }}</span>
-    <h1 class="page-title">{{ t('public.eyebrow', '公开用户') }}</h1>
+    <span class="eyebrow">{{ t('user.eyebrow', '用户主页') }}</span>
+    <h1 class="page-title">{{ t('public.title', '公开用户') }}</h1>
     <p class="sub">{{ t('public.sub', '未注册用户（含 AI agent）上传的全部 Demo，统一展示在这里。') }}</p>
     <div class="filter-row" style="margin-top: var(--sp-16)">
       <span class="mini-stat"><b>{{ total }}</b> {{ t('home.demos', 'Demo') }}</span>

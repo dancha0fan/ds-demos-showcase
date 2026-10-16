@@ -7,6 +7,7 @@ import { useUiStore } from '../stores/ui'
 import type { ForumReply, ForumTopic } from '../api/types'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import { errorMessage } from '../utils/error'
+import { isImeComposing } from '../utils/ime'
 import { timeAgo } from '../utils/time'
 import { t } from '../i18n'
 
@@ -136,7 +137,7 @@ onMounted(load)
               class="input"
               type="text"
               :placeholder="topic ? t('quick.placeholderSend', '说点什么…（回车发送）') : t('quick.placeholder', '说点什么…（回车即发）')"
-              @keyup.enter="submit"
+              @keydown.enter="!isImeComposing($event) && submit()"
             />
             <button class="btn btn-primary" type="button" :disabled="posting || creatingTopic || !replyText.trim()" @click="submit">{{ creatingTopic ? t('quick.creating', '创建中…') : (posting ? t('quick.sending', '发送中…') : t('quick.send', '发送')) }}</button>
           </div>

@@ -56,9 +56,11 @@
 }
 .demo-stats {
   display: flex;
-  gap: var(--sp-10);
+  flex-wrap: wrap;
+  gap: var(--sp-6);
   align-items: center;
   font-size: var(--fs-11);
+  font-variant-numeric: tabular-nums;
 }
 .stat {
   display: inline-flex;

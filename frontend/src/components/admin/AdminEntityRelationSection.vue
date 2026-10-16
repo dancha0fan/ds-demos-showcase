@@ -18,6 +18,7 @@ import { useUiStore } from '../../stores/ui'
 import EntityPicker from '../picker/EntityPicker.vue'
 import type { EntityPick } from '../picker/pickerSources'
 import { t } from '../../i18n'
+import { isImeComposing } from '../../utils/ime'
 
 const props = defineProps<{
   type: 'model' | 'task' | 'tag'
@@ -178,7 +179,7 @@ watch(
           {{ a }}
           <button type="button" class="kc-chip-x" :aria-label="t('admin.kc.aliasRemove', '删除别名')" @click="removeAlias(a)">×</button>
         </span>
-        <input v-model="aliasNew" class="input" style="max-width: 200px" :placeholder="t('admin.kc.aliasPh', '新增别名…')" @keyup.enter="addAlias" />
+        <input v-model="aliasNew" class="input" style="max-width: 200px" :placeholder="t('admin.kc.aliasPh', '新增别名…')" @keydown.enter="!isImeComposing($event) && addAlias()" />
         <button type="button" class="btn btn-sm btn-outline" :disabled="busyAlias || !aliasNew.trim()" @click="addAlias">{{ t('admin.kc.aliasAdd', '添加') }}</button>
       </div>
       <div class="kc-rel-row">

@@ -8,6 +8,7 @@ import PaginationBar from '../components/PaginationBar.vue'
 import LoadingRow from '../components/LoadingRow.vue'
 import EmptyBox from '../components/EmptyBox.vue'
 import { timeAgo } from '../utils/time'
+import { isImeComposing } from '../utils/ime'
 import { useListPage } from '../composables/useListPage'
 import { t, forumCatLabel } from '../i18n'
 import CoverImg from '../components/CoverImg.vue'
@@ -129,7 +130,7 @@ watch(
   <section class="forum-section">
     <div class="forum-toolbar">
       <div class="search-box search-box--grow search-box--sm">
-        <input v-model="q" class="input" type="search" :placeholder="t('forum.searchPlaceholder', '搜索主题…（回车提交）')" @keyup.enter="apply" />
+        <input v-model="q" class="input" type="search" :placeholder="t('forum.searchPlaceholder', '搜索主题…（回车提交）')" @keydown.enter="!isImeComposing($event) && apply()" />
         <button class="btn btn-secondary search-submit" type="button" @click="apply">{{ t('demos.search', '搜索') }}</button>
       </div>
       <!-- P2-c 判定：这里**不是**"两套语汇混用"，而是 C4（t6 M5-U4）的刻意裁决 ——

@@ -41,6 +41,18 @@
   text-decoration: line-through;
   text-decoration-thickness: 4px;
 }
+/* 只给读屏：图标旁的文字标签 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
 
 /* P3：阅读/表单列宽真源（--w-read）。原先这类"窄列"散在各处内联或页面 CSS：
    关于正文 640、名单 720、上传列 760、设置卡 440 —— 四条数字四个来源。

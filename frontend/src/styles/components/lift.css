@@ -23,7 +23,7 @@
 :is(.b-lift, .btn, .tag-chip, .tab, .mode-badge, .uw-item) {
   /* 静止影：组件必须声明 --lift-sh（无影组件显式写 none）——见 09-规范↔门禁对照.md 的门禁 ③ */
   box-shadow: var(--lift-sh, none);
-  transition: transform var(--b-dur) var(--b-ease), box-shadow var(--b-dur) var(--b-ease); /* R7：颜色属性一律不进过渡（0ms 硬切） */
+  transition: transform var(--b-dur) var(--b-ease), translate var(--b-dur) var(--b-ease), box-shadow var(--b-dur) var(--b-ease); /* R7：颜色属性一律不进过渡（0ms 硬切） */
 }
 
 /* hover = 抬起 + 影变化。两种合法技法（用户 2026-09-13 拍板）：
@@ -39,9 +39,12 @@
 }
 
 /* Rule 01：按下压进表面——位移量 = 该元素影的偏移像素、阴影清零。
-   默认走 --sh-off-md（4px 档）；其它档位由组件用 --lift-flat 指定同档值。 */
+   默认走 --sh-off-md（4px 档）；其它档位由组件用 --lift-flat 指定同档值。
+   位移必须走独立的 translate 属性：--sh-off-* 是给 box-shadow 拼接用的空格分隔值（"4px 4px"），
+   塞进 translate() 函数缺逗号 → 整条 transform 计算值为 none（按下只清影、不位移，倾斜也丢）。 */
 :is(.b-lift, .btn, .tag-chip, .tab, .mode-badge, .uw-item):active {
-  transform: translate(var(--lift-flat, var(--sh-off-md))) rotate(var(--tilt-press));
+  transform: rotate(var(--tilt-press));
+  translate: var(--lift-flat, var(--sh-off-md));
   box-shadow: none;
 }
 
@@ -51,5 +54,6 @@
   }
   :is(.b-lift, .btn, .tag-chip, .tab, .mode-badge, .uw-item):active {
     transform: none;
+    translate: none;
   }
 }

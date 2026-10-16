@@ -9,6 +9,8 @@ import CoverImg from '../components/CoverImg.vue'
 const props = defineProps<{ demo: DemoSummary }>()
 
 const cover = computed(() => props.demo.cover_url)
+/** 按码点取首字：title[0] 遇到 emoji 开头只拿到半个代理对，渲染成 □ */
+const initial = computed(() => Array.from(props.demo.title)[0] ?? '')
 // 封面加载失败（文件缺失/迁移中）时退回色块首字，不留白框 —— 截图里看到过一片空白卡片
 const coverBroken = ref(false)
 function onCoverError() {
@@ -38,11 +40,11 @@ function label(tag: { key: string; value: string }) {
   <RouterLink :to="`/demo/${demo.slug}`" class="card card-hover demo-card animate-in b-lift">
     <div class="demo-cover">
       <CoverImg v-if="cover && !coverBroken" :src="cover" tier="card" sizes="(max-width:720px) 50vw, 320px" :alt="demo.title" @error="onCoverError" />
-      <div v-else class="cover-fallback" style="background: var(--wash-mint, #4ecdc4)">{{ demo.title[0] }}</div>
+      <div v-else class="cover-fallback" style="background: var(--wash-mint, #4ecdc4)">{{ initial }}</div>
     </div>
     <div class="demo-card-body">
       <h3 class="demo-title">{{ demo.title }}</h3>
-      <p class="demo-meta">{{ demo.description.slice(0, 60) }}</p>
+      <p v-if="demo.description" class="demo-meta demo-desc">{{ demo.description }}</p>
       <!-- v2：卡片上的模型是"署名"（轻 chip、无印章），层级让位于标题；档案级印章留给详情页/模型页 -->
       <div v-if="showModelChips" class="demo-byline">
         <ModelChips :models="demo.models ?? []" :max="2" size="sm" plain prefix />
@@ -67,9 +69,19 @@ function label(tag: { key: string; value: string }) {
           <template v-if="demo.rating_count >= 5">{{ Number(demo.rating_avg || 0).toFixed(1) }} · n={{ demo.rating_count }}</template>
           <template v-else>{{ t('card.sampleLow', '样本不足') }} · n={{ demo.rating_count }}</template>
         </span>
-        <span class="stat stat-yellow">VIEW {{ demo.view_count }}</span>
-        <span class="stat stat-teal">DL {{ demo.download_count }}</span>
-        <span class="stat stat-red">CMT {{ demo.comment_count }}</span>
+        <!-- P6：计数是统计不是行动 —— 纸底黑边，不用黄/青/红底 -->
+        <span class="stat" :title="t('demo.views', '浏览')">
+          <svg class="stat-ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" /><circle cx="8" cy="8" r="2" /></svg>
+          <span class="sr-only">{{ t('demo.views', '浏览') }}</span>{{ demo.view_count }}
+        </span>
+        <span class="stat" :title="t('demo.downloads', '下载')">
+          <svg class="stat-ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M2.5 13.5h11" /></svg>
+          <span class="sr-only">{{ t('demo.downloads', '下载') }}</span>{{ demo.download_count }}
+        </span>
+        <span class="stat" :title="t('demo.discussions', '讨论')">
+          <svg class="stat-ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2.5h12v8.5H7l-3.5 3v-3H2Z" /></svg>
+          <span class="sr-only">{{ t('demo.discussions', '讨论') }}</span>{{ demo.comment_count }}
+        </span>
       </div>
     </div>
   </RouterLink>
@@ -87,6 +99,24 @@ function label(tag: { key: string; value: string }) {
   width: 12px;
   height: 12px;
   flex: none;
+}
+.stat-ico {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
+/* 按行截断而不是按字数：中英文同样两行、带省略号 */
+.demo-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 /* n<5：灰显分数主体（覆盖 stat-mint 的彩色底——信息降级必须看得见） */
 .rate-pair.rate-low {
