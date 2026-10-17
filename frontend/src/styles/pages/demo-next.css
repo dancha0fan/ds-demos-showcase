@@ -29,6 +29,6 @@
 }
 .dv-next-card:hover { background: var(--yellow); }
 @media (prefers-reduced-motion: reduce) {
-  .dv-next-card { transition: none; }
+  .dv-next-card { transition: none; }
 }
 

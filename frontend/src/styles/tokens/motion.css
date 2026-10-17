@@ -62,7 +62,7 @@
 .rd-track i { transition: width var(--b-dur) var(--b-ease); }
 @media (prefers-reduced-motion: reduce) {
   .ac-card, .uw-step, .uw-type, .dv-rail, .dv-collapse, .uw-edit, .uw-aside-toggle, .btn, .tag-chip { transition: none; }
-  .dv-panel-enter-active, .dv-disclose[open] .dv-disclose-body { animation: none; }
+  .dv-panel-enter-active, .dv-disclose[open] .dv-disclose-body { animation: none; }
 }
 
 /* ============================================================
