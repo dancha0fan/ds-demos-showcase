@@ -1076,6 +1076,14 @@ export const mockApi = {
     return { slug: d.slug, title: d.title, cover_url: d.cover_url, author: d.author ?? 'public' }
   },
 
+  async demosByTasks(taskIds: number[]): Promise<DemoSummary[]> {
+    await delay(80)
+    if (!taskIds.length) return []
+    const ids = new Set(taskIds)
+    // 与真接口同口径：不限分页、按题目取整组（mock 夹具里只有极少数作品带题）
+    return demos.filter((d) => (d.tasks ?? []).some((tk) => ids.has(tk.id))).map((d) => clone(d))
+  },
+
   async getDemo(slug: string): Promise<DemoDetail> {
     await delay()
     const d = findDemo(slug)

@@ -97,9 +97,21 @@ const unitSort = computed<UnitSortMode>(() => {
   return 'none'
 })
 /** 瀑布流的渲染单元：一件作品，或一个同题组（堆叠卡） */
-const units = computed(() =>
-  buildUnits(demos.value, { preferTaskSlug: preferTaskSlug.value || undefined, sort: unitSort.value }),
-)
+const units = computed(() => {
+  // 组内全量：已加载切片里出现的题目，补上该题的全部作品（组一出现就整组可见）
+  const pool = [...demos.value]
+  if (taskGroupOn.value && groupMembers.value.size) {
+    const seen = new Set(pool.map((d) => d.slug))
+    for (const list of groupMembers.value.values()) {
+      for (const d of list) {
+        if (seen.has(d.slug)) continue
+        seen.add(d.slug)
+        pool.push(d)
+      }
+    }
+  }
+  return buildUnits(pool, { preferTaskSlug: preferTaskSlug.value || undefined, sort: unitSort.value })
+})
 // 展开态按单元 key 记忆；换筛选（reset）清空——旧展开态对新数据集没有意义
 const tgOpen = ref<Record<string, boolean>>({})
 function isUnitOpen(u: ListUnit<DemoSummary>) {
@@ -119,6 +131,41 @@ function groupOf(item: unknown) {
 function demoOf(item: unknown): DemoSummary {
   return (item as Extract<ListUnit<DemoSummary>, { kind: 'demo' }>).demo
 }
+
+// ---------- 组内全量（「组一出现就必须整组可见」）----------
+// 主列表按页切片，一个同题组会被页边界切开。所以每加载一页，就把该页出现的题目
+// 批量补全（GET /demos/by-tasks）；组渲染用「已加载切片 + 补全的整组成员」。
+const groupMembers = ref<Map<number, DemoSummary[]>>(new Map())
+const groupFetched = new Set<number>()
+let groupEpoch = 0
+
+async function ensureGroupMembers(items: readonly DemoSummary[]) {
+  const want = new Set<number>()
+  for (const d of items) for (const t of d.tasks ?? []) if (!groupFetched.has(t.id)) want.add(t.id)
+  if (!want.size) return
+  const ids = [...want].slice(0, 20) // 单页最多补 20 个题（与后端上限一致）
+  for (const id of ids) groupFetched.add(id) // 先占位：并发/连翻不会重复请求同一题
+  const epoch = groupEpoch
+  try {
+    const rows = await api.demosByTasks(ids)
+    // 只受数据集世代（换筛选 reset 时 ++）约束：整组成员与「第几页/第几次请求」无关。
+    // 不能再用 gen.isCurrent(my) —— 无限滚动紧接着发的「加载更多」会推进世代号，
+    // 把第 1 页这次补全的响应判成过期丢掉（实测：组永远停在「已加载」）。
+    if (epoch !== groupEpoch) return
+    const next = new Map(groupMembers.value)
+    for (const id of ids) next.set(id, rows.filter((r) => (r.tasks ?? []).some((t) => t.id === id)))
+    groupMembers.value = next
+  } catch {
+    // 补全失败：退化为「已加载切片」分组（不阻塞主列表），下次分页再试
+    for (const id of ids) groupFetched.delete(id)
+  }
+}
+
+/** 组是否已取全（决定组头写「N 件」还是「已加载 N 件」——口径不许含糊） */
+function isGroupComplete(key: number | null): boolean {
+  return key !== null && groupMembers.value.has(key)
+}
+
 
 // ---------- 返回恢复：离开时记录已加载页数与滚动位，回来先补齐深度再落点 ----------
 // 路由 savedPosition 只在内容够高时有效，而本页重挂载只会拉第 1 页 —— 不补深度，
@@ -417,6 +464,10 @@ async function load(reset = false) {
     if (reset) {
       demos.value = res.items
       tgOpen.value = {} // 新数据集，旧展开态没有意义
+      // 组内全量缓存也属于旧数据集：作废在途补全并清空（否则换筛选后还挂着上一批的组成员）
+      groupEpoch++
+      groupMembers.value = new Map()
+      groupFetched.clear()
     } else demos.value = dedupeBySlug(demos.value, res.items).items // 兜底层：顺序稳定根修在 rs
     if (res.random_seed) randomSeed.value = res.random_seed
     total.value = res.total
@@ -425,6 +476,8 @@ async function load(reset = false) {
     // （页码只前进），length 永远追不上 total → hasMore 卡死为 true，「已加载全部 N 个」
     // 永不出现、滚到底后反复发空页请求。空页是服务端分页的权威到底信号。
     hasMore.value = res.items.length > 0 && demos.value.length < res.total
+    // 「组一出现就整组可见」：把本页出现的题目补全（不 await，不阻塞列表渲染）
+    if (taskGroupOn.value) void ensureGroupMembers(res.items)
   } catch (e) {
     if (!gen.isCurrent(my)) return
     error.value = (e as Error).message
@@ -738,6 +791,7 @@ onBeforeUnmount(() => observer?.disconnect())
                 :group="groupOf(item).group"
                 :rep="groupOf(item).rep"
                 :open="isUnitOpen(groupOf(item))"
+                :complete="isGroupComplete(groupOf(item).group.key)"
                 :prompt-mode="cardMode === 'prompt'"
                 @toggle="toggleUnit(groupOf(item))"
               />

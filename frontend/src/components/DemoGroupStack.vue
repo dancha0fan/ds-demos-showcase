@@ -22,6 +22,8 @@ const props = defineProps<{
   /** 组的代表件（按当前排序口径取组内最好的一件），渲染在堆叠卡最上层 */
   rep: DemoSummary
   open: boolean
+  /** 组是否已取全：true → 组头写「共 N 件」；false → 写「已加载 N 件」（口径不许含糊） */
+  complete?: boolean
   /** 提示词模式：展开后渲染 PromptDemoCard 而不是 DemoCard */
   promptMode?: boolean
 }>()
@@ -30,6 +32,12 @@ const emit = defineEmits<{ toggle: [] }>()
 
 /** 按码点取首字：title[0] 遇到 emoji 开头只拿到半个代理对（DemoCard 同款处理） */
 const initial = computed(() => Array.from(props.rep.title)[0] ?? '')
+
+const countLabel = computed(() =>
+  props.complete
+    ? t('demos.tgTotal', '共 {n} 件', { n: props.group.items.length })
+    : t('demos.tgCount', '已加载 {n} 件', { n: props.group.items.length }),
+)
 </script>
 
 <template>
@@ -38,7 +46,7 @@ const initial = computed(() => Array.from(props.rep.title)[0] ?? '')
     <div class="dgs-head">
       <span class="dgs-head-main">
         <span class="dgs-task">{{ group.task?.title }}</span>
-        <span class="dgs-count">{{ t('demos.tgCount', '已加载 {n} 件', { n: group.items.length }) }}</span>
+        <span class="dgs-count">{{ countLabel }}</span>
       </span>
       <span class="dgs-head-actions">
         <RouterLink v-if="group.task" class="dgs-link" :to="`/tasks/${group.task.slug}`">
@@ -85,7 +93,7 @@ const initial = computed(() => Array.from(props.rep.title)[0] ?? '')
         <span class="dgs-task">{{ group.task?.title }}</span>
         <span class="dgs-title">{{ rep.title }}</span>
         <span class="dgs-meta">
-          <span class="dgs-count">{{ t('demos.tgCount', '已加载 {n} 件', { n: group.items.length }) }}</span>
+          <span class="dgs-count">{{ countLabel }}</span>
           <span class="dgs-hint">{{ t('demos.tgExpand', '展开查看全部') }}</span>
         </span>
       </span>
