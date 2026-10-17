@@ -25,6 +25,11 @@ const props = defineProps<{
   open: boolean
   /** 组是否已取全：true → 组头写「共 N 件」；false → 写「已加载 N 件」（口径不许含糊） */
   complete?: boolean
+  /** 单元 key（如 `g:1`）：只用于给展开/收起前后的滚动校正提供稳定的 DOM 锚点。
+   *  必须显式接收并绑到根元素 —— 本组件有两个根分支（v-if/v-else），
+   *  Vue 不会自动透传非 prop 属性（2026-10-17 实测：`:data-unit-key` 落在组件上直接丢失，
+   *  导致收起后的滚动校正变成空操作、页面被浏览器钳到瀑布流底部）。 */
+  unitKey?: string
   /** 提示词模式：展开后渲染 PromptDemoCard 而不是 DemoCard */
   promptMode?: boolean
 }>()
@@ -43,7 +48,7 @@ const countLabel = computed(() =>
 
 <template>
   <!-- 展开态：在当前格位铺开组内全部卡片（不跳页、不弹层） -->
-  <section v-if="open" class="dgs dgs--open">
+  <section v-if="open" class="dgs dgs--open" :data-unit-key="unitKey">
     <div class="dgs-head">
       <span class="dgs-head-main">
         <span class="dgs-task">{{ group.task?.title }}</span>
@@ -75,7 +80,7 @@ const countLabel = computed(() =>
   </section>
 
   <!-- 收起态：两张错位的底层卡 + 最上层代表件；整块是一个真按钮 -->
-  <div v-else class="dgs dgs--stack">
+  <div v-else class="dgs dgs--stack" :data-unit-key="unitKey">
     <span class="dgs-layer dgs-layer--2" aria-hidden="true"></span>
     <span class="dgs-layer dgs-layer--1" aria-hidden="true"></span>
     <button

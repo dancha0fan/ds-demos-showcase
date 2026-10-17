@@ -117,8 +117,34 @@ const tgOpen = ref<Record<string, boolean>>({})
 function isUnitOpen(u: ListUnit<DemoSummary>) {
   return u.kind === 'group' && !!tgOpen.value[u.key]
 }
-function toggleUnit(u: ListUnit<DemoSummary>) {
+/**
+ * 展开 / 收起。
+ *
+ * 收起会把一个很高的整行块换回一个堆叠卡 —— 页面瞬间变矮，浏览器会把 scrollY
+ * 钳到新的最大滚动位置，看起来就是「点了收起直接跳到瀑布流最后」。
+ * 所以切换前后各量一次该单元的视口位置，差多少就 scrollBy 多少，把它按回原处。
+ * （展开时这段通常是 no-op：块在原地向下长高。）
+ */
+async function toggleUnit(u: ListUnit<DemoSummary>) {
+  const sel = `[data-unit-key="${u.key}"]`
+  const beforeTop = document.querySelector<HTMLElement>(sel)?.getBoundingClientRect().top ?? 0
   tgOpen.value = { ...tgOpen.value, [u.key]: !isUnitOpen(u) }
+  await nextTick()
+  const correct = () => {
+    const el = document.querySelector<HTMLElement>(sel)
+    if (!el) return
+    const delta = el.getBoundingClientRect().top - beforeTop
+    if (Math.abs(delta) > 1) window.scrollBy(0, delta)
+  }
+  correct()
+  // 瀑布流会在接下来的几帧里用实测高度收敛（MasonryGrid 首帧按估算高度排、再 settle），
+  // 位置还会挪几次；连校 6 帧（≈100ms）把它按住，之后用户自己滚就不再干预。
+  let n = 0
+  const tick = () => {
+    correct()
+    if (++n < 6) requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
 }
 
 // 模板里对槽位 item 做窄化的小工具（MasonryGrid 的 item 是 unknown）
@@ -814,36 +840,41 @@ onBeforeUnmount(() => observer?.disconnect())
         <!-- 同题 demo 组：收起态 = 堆叠卡（占瀑布流一个格子）；展开时**跨满整行**，
              组内自己排多列（内部网格在 DemoGroupStack 里），不再把一列拉长 -->
         <template v-if="taskGroupOn">
-          <template v-for="b in blocks" :key="b.key">
-            <MasonryGrid
-              v-if="b.kind === 'grid'"
-              :items="b.units"
-              :item-key="(u: unknown) => (u as ListUnit<DemoSummary>).key"
-            >
-              <template #default="{ item }">
-                <DemoGroupStack
-                  v-if="isGroupUnit(item)"
-                  :group="groupOf(item).group"
-                  :rep="groupOf(item).rep"
-                  :open="false"
-                  :complete="isGroupComplete(groupOf(item).group.key)"
-                  :prompt-mode="cardMode === 'prompt'"
-                  @toggle="toggleUnit(groupOf(item))"
-                />
-                <PromptDemoCard v-else-if="cardMode === 'prompt'" :demo="demoOf(item)" />
-                <DemoCard v-else :demo="demoOf(item)" />
-              </template>
-            </MasonryGrid>
-            <DemoGroupStack
-              v-else
-              :group="b.unit.group"
-              :rep="b.unit.rep"
-              :open="true"
-              :complete="isGroupComplete(b.unit.group.key)"
-              :prompt-mode="cardMode === 'prompt'"
-              @toggle="toggleUnit(b.unit)"
-            />
-          </template>
+          <!-- 块之间要留和瀑布流一致的垂直间隙：MasonryGrid 只有列内 gap，块与块默认是贴着的 -->
+          <div class="dv-blocks">
+            <template v-for="b in blocks" :key="b.key">
+              <MasonryGrid
+                v-if="b.kind === 'grid'"
+                :items="b.units"
+                :item-key="(u: unknown) => (u as ListUnit<DemoSummary>).key"
+              >
+                <template #default="{ item }">
+                  <DemoGroupStack
+                    v-if="isGroupUnit(item)"
+                    :unit-key="groupOf(item).key"
+                    :group="groupOf(item).group"
+                    :rep="groupOf(item).rep"
+                    :open="false"
+                    :complete="isGroupComplete(groupOf(item).group.key)"
+                    :prompt-mode="cardMode === 'prompt'"
+                    @toggle="toggleUnit(groupOf(item))"
+                  />
+                  <PromptDemoCard v-else-if="cardMode === 'prompt'" :demo="demoOf(item)" />
+                  <DemoCard v-else :demo="demoOf(item)" />
+                </template>
+              </MasonryGrid>
+              <DemoGroupStack
+                v-else
+                :unit-key="b.unit.key"
+                :group="b.unit.group"
+                :rep="b.unit.rep"
+                :open="true"
+                :complete="isGroupComplete(b.unit.group.key)"
+                :prompt-mode="cardMode === 'prompt'"
+                @toggle="toggleUnit(b.unit)"
+              />
+            </template>
+          </div>
         </template>
         <MasonryGrid v-else :items="demos" :item-key="(d: unknown) => (d as DemoSummary).slug">
           <template #default="{ item }">
@@ -1395,8 +1426,17 @@ button[data-reset].vendor-strip-head:focus-visible {
   transform: translateX(16px);
 }
 
+/* ---- 分组模式的分块渲染：普通单元段与展开的整行组块之间要留白 ----
+   MasonryGrid 只负责列内 gap，块与块在普通流里默认是贴着的。 */
+.dv-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-24);
+}
+
 /* ---- 换筛选时：旧结果压暗留在原位，状态条吸顶浮在结果上方（零高度，不推挤布局） ---- */
-.is-refreshing > .masonry {
+.is-refreshing > .masonry,
+.is-refreshing > .dv-blocks {
   opacity: 0.45;
 }
 .refresh-flag {
