@@ -15,6 +15,7 @@ import type { TaskGroup } from '../utils/demoList'
 import { t } from '../i18n'
 import CoverImg from './CoverImg.vue'
 import DemoCard from './DemoCard.vue'
+import MasonryGrid from './MasonryGrid.vue'
 import PromptDemoCard from './PromptDemoCard.vue'
 
 const props = defineProps<{
@@ -58,12 +59,18 @@ const countLabel = computed(() =>
       </span>
     </div>
     <div class="dgs-cards">
-      <template v-if="promptMode">
-        <PromptDemoCard v-for="d in group.items" :key="d.slug" :demo="d" />
-      </template>
-      <template v-else>
-        <DemoCard v-for="d in group.items" :key="d.slug" :demo="d" />
-      </template>
+      <!-- 跨满整行后，组内自己排多列：内部也是一个瀑布流，卡片按列均摊，不再一条竖线拉到很长 -->
+      <MasonryGrid
+        :items="group.items"
+        :item-key="(d: unknown) => (d as DemoSummary).slug"
+        :min-col-width="220"
+        :gap="16"
+      >
+        <template #default="{ item }">
+          <PromptDemoCard v-if="promptMode" :demo="item as DemoSummary" />
+          <DemoCard v-else :demo="item as DemoSummary" />
+        </template>
+      </MasonryGrid>
     </div>
   </section>
 
@@ -243,8 +250,7 @@ const countLabel = computed(() =>
   cursor: pointer;
 }
 .dgs-cards {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-12);
+  /* 组内是内部瀑布流（跨整行后自己排多列），这里只负责把网格铺满整行 */
+  display: block;
 }
 </style>

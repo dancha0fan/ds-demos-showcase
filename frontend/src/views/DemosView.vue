@@ -166,6 +166,35 @@ function isGroupComplete(key: number | null): boolean {
   return key !== null && groupMembers.value.has(key)
 }
 
+/**
+ * 渲染块：连续的普通单元 → 一个瀑布流段；**展开的组 → 跨满整行的一块**。
+ * 展开的组不能留在瀑布流里（留在里面只能占一列，会把那一列拉得很长），
+ * 所以把它从流中取出，作为整行块插在它原来的排序位置上。
+ */
+type RenderBlock =
+  | { kind: 'grid'; key: string; units: ListUnit<DemoSummary>[] }
+  | { kind: 'group'; key: string; unit: Extract<ListUnit<DemoSummary>, { kind: 'group' }> }
+
+const blocks = computed<RenderBlock[]>(() => {
+  const out: RenderBlock[] = []
+  let run: ListUnit<DemoSummary>[] = []
+  const flush = () => {
+    if (!run.length) return
+    out.push({ kind: 'grid', key: `grid:${run[0].key}`, units: run })
+    run = []
+  }
+  for (const u of units.value) {
+    if (u.kind === 'group' && isUnitOpen(u)) {
+      flush()
+      out.push({ kind: 'group', key: u.key, unit: u })
+    } else {
+      run.push(u)
+    }
+  }
+  flush()
+  return out
+})
+
 
 // ---------- 返回恢复：离开时记录已加载页数与滚动位，回来先补齐深度再落点 ----------
 // 路由 savedPosition 只在内容够高时有效，而本页重挂载只会拉第 1 页 —— 不补深度，
@@ -782,23 +811,39 @@ onBeforeUnmount(() => observer?.disconnect())
           </div>
         </div>
 
-        <!-- 同题 demo 组：组 = 堆叠卡，占瀑布流的一个格子；点一下在当前格位展开（不再用整行组头） -->
+        <!-- 同题 demo 组：收起态 = 堆叠卡（占瀑布流一个格子）；展开时**跨满整行**，
+             组内自己排多列（内部网格在 DemoGroupStack 里），不再把一列拉长 -->
         <template v-if="taskGroupOn">
-          <MasonryGrid :items="units" :item-key="(u: unknown) => (u as ListUnit<DemoSummary>).key">
-            <template #default="{ item }">
-              <DemoGroupStack
-                v-if="isGroupUnit(item)"
-                :group="groupOf(item).group"
-                :rep="groupOf(item).rep"
-                :open="isUnitOpen(groupOf(item))"
-                :complete="isGroupComplete(groupOf(item).group.key)"
-                :prompt-mode="cardMode === 'prompt'"
-                @toggle="toggleUnit(groupOf(item))"
-              />
-              <PromptDemoCard v-else-if="cardMode === 'prompt'" :demo="demoOf(item)" />
-              <DemoCard v-else :demo="demoOf(item)" />
-            </template>
-          </MasonryGrid>
+          <template v-for="b in blocks" :key="b.key">
+            <MasonryGrid
+              v-if="b.kind === 'grid'"
+              :items="b.units"
+              :item-key="(u: unknown) => (u as ListUnit<DemoSummary>).key"
+            >
+              <template #default="{ item }">
+                <DemoGroupStack
+                  v-if="isGroupUnit(item)"
+                  :group="groupOf(item).group"
+                  :rep="groupOf(item).rep"
+                  :open="false"
+                  :complete="isGroupComplete(groupOf(item).group.key)"
+                  :prompt-mode="cardMode === 'prompt'"
+                  @toggle="toggleUnit(groupOf(item))"
+                />
+                <PromptDemoCard v-else-if="cardMode === 'prompt'" :demo="demoOf(item)" />
+                <DemoCard v-else :demo="demoOf(item)" />
+              </template>
+            </MasonryGrid>
+            <DemoGroupStack
+              v-else
+              :group="b.unit.group"
+              :rep="b.unit.rep"
+              :open="true"
+              :complete="isGroupComplete(b.unit.group.key)"
+              :prompt-mode="cardMode === 'prompt'"
+              @toggle="toggleUnit(b.unit)"
+            />
+          </template>
         </template>
         <MasonryGrid v-else :items="demos" :item-key="(d: unknown) => (d as DemoSummary).slug">
           <template #default="{ item }">
