@@ -211,6 +211,7 @@ def serialize_demo(
         "download_count": demo.download_count,
         "comment_count": comment_count,
         "created_at": demo.created_at,
+        "updated_at": demo.updated_at,
         "status": demo.status,
         "rating_avg": round(demo.rating_avg or 0.0, 2),
         "rating_count": demo.rating_count,

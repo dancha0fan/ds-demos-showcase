@@ -208,6 +208,19 @@ const realApi = {
     const { data } = await http.get(`/demos/${encodeURIComponent(slug)}`)
     return data
   },
+  /**
+   * 按题目批量取**整组**（作品库 demo 组）。
+   * 主列表按页切片，组会被页边界切开；前端拿到整组才能画完整的堆叠卡、
+   * 并按「组内最近更新 / 浏览最多 / 最高分」算组级排序。
+   */
+  async demosByTasks(taskIds: number[]): Promise<DemoSummary[]> {
+    if (!taskIds.length) return []
+    const { data } = await http.get('/demos/by-tasks', {
+      params: { task_ids: taskIds },
+      paramsSerializer: { indexes: null },
+    })
+    return data
+  },
   /** KB-29：卡片专用轻量口（不增加 view_count）。凡「只要 slug/title/封面/作者」的
    *  卡片场景都必须用它 —— 用 getDemo 会顺手把该作品的浏览量刷上去。 */
   async demoMeta(slug: string): Promise<DemoMeta> {

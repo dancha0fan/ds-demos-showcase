@@ -241,6 +241,10 @@ class DemoSummaryOut(BaseModel):
     download_count: int
     comment_count: int
     created_at: datetime
+    # 内容更新时间（Demo.updated_at 只在内容被改时显式赋值，没有 onupdate；
+    # 不能拿它做预览版本号，但作为「这个作品最近一次更新」的口径是可靠的）。
+    # 作品库的 demo 组排序需要它：组的时间口径 = 组内最近更新的那一件。
+    updated_at: datetime
     status: str
     demo_type: str = "web"
     external_url: str | None = None

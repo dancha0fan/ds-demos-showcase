@@ -544,6 +544,53 @@ def list_demos(
     )
 
 
+@router.get("/by-tasks", response_model=list[DemoSummaryOut])
+def demos_by_tasks(
+    task_ids: list[int] = Query(default=[], description="题目 id；作品库 demo 组按题取整组"),
+    per_task_limit: int = Query(default=100, ge=1, le=300, description="单题最多返回件数"),
+    db: Session = Depends(get_db),
+    scope: str = Depends(get_scope),
+):
+    """按题目批量取**整组**作品（作品库「组一出现就必须整组可见」用）。
+
+    为什么需要这个口：主列表按页切片返回，一个同题组会被页边界切开；前端只有拿到整组，
+    才能把堆叠卡画完整、并算出正确的组级排序值（组内最近更新 / 浏览最多 / 最高分）。
+
+    可见性口径与主列表一致：只出 approved + 当前视区的 scope 过滤。
+    **刻意不过滤搜索/标签条件**——组的语义是「这道题的全部作品」：组因某个成员命中筛选而
+    出现时，整组一起出现（这是与「按筛选条件再筛一次」不同的产品口径）。
+    """
+    ids = sorted({int(i) for i in task_ids if int(i) > 0})[:20]
+    if not ids:
+        return []
+    rows = (
+        db.query(Demo, DemoTask.task_id)
+        .join(DemoTask, DemoTask.demo_id == Demo.id)
+        .filter(DemoTask.task_id.in_(ids), Demo.status == "approved")
+        .filter(scope_contains_filter(scope))
+        .order_by(Demo.created_at.desc(), Demo.id.desc())
+        .all()
+    )
+    per: dict[int, list[Demo]] = {tid: [] for tid in ids}
+    seen: set[int] = set()
+    for demo, tid in rows:
+        if tid not in per:
+            continue
+        # 一个作品可能挂多个题：只出一次（前端按同一套单归属规则重新分组）
+        if demo.id in seen or len(per[tid]) >= per_task_limit:
+            continue
+        seen.add(demo.id)
+        per[tid].append(demo)
+    # 合并去重（保持查出来的顺序），并给个总量上限防滥用
+    merged: dict[int, Demo] = {}
+    for tid in ids:
+        for d in per[tid]:
+            merged.setdefault(d.id, d)
+    items = list(merged.values())[:2000]
+    preload_demo_relations(db, items)
+    return [serialize_demo(db, d) for d in items]
+
+
 @router.get("/{slug}", response_model=DemoDetailOut)
 def get_demo(
     slug: str,

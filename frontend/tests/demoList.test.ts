@@ -1,6 +1,16 @@
 // 作品库列表纯逻辑单测：同题分组（身份=稳定 task.id，不按标题猜）+ 追加去重（客户端兜底层）
 import { describe, expect, it } from 'vitest'
-import { dedupeBySlug, groupByTask, isFoldableGroup, primaryTask, type GroupableDemo } from '../src/utils/demoList'
+import {
+  buildUnits,
+  dedupeBySlug,
+  groupByTask,
+  groupRepresentative,
+  groupScalar,
+  isFoldableGroup,
+  primaryTask,
+  type GroupableDemo,
+  type GroupSortableDemo,
+} from '../src/utils/demoList'
 
 type D = GroupableDemo & { title?: string }
 
@@ -85,5 +95,93 @@ describe('dedupeBySlug', () => {
     dedupeBySlug(existing, incoming)
     expect(existing).toHaveLength(1)
     expect(incoming).toHaveLength(1)
+  })
+})
+
+// ---------------------------------------------------------------- 作品库单元（demo 组）
+
+type TaskRef = { id: number; slug: string; title: string }
+/** 单元排序要用的作品（带时间/热度/评分） */
+function s(slug: string, tasks?: TaskRef[], extra: Partial<GroupSortableDemo> = {}): GroupSortableDemo {
+  return { slug, tasks, ...extra }
+}
+
+describe('buildUnits：组=堆叠卡，占一个格子', () => {
+  it('多件同题 → 一个 group 单元；单件组与未挂题作品 → 普通 demo 单元', () => {
+    const units = buildUnits([s('1', [T1]), s('2', [T1]), s('3', [T2]), s('u')])
+    expect(units.map((u) => u.kind)).toEqual(['group', 'demo', 'demo'])
+    expect(units[0].key).toBe('g:11')
+    expect(units[1].key).toBe('d:3')
+    expect(units[2].key).toBe('d:u')
+  })
+
+  it('组在它第一件作品出现的位置产出，组内作品不再单独成卡', () => {
+    const units = buildUnits([s('a', [T1]), s('b'), s('c', [T1])])
+    expect(units.map((u) => u.key)).toEqual(['g:11', 'd:b'])
+  })
+
+  it('最新：组的时间口径 = 组内最近更新的那一件', () => {
+    const items = [
+      s('a', [T1], { created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-02T00:00:00Z' }),
+      s('b', [T1], { created_at: '2026-01-01T00:00:00Z', updated_at: '2026-09-01T00:00:00Z' }),
+      s('c', undefined, { created_at: '2026-05-01T00:00:00Z', updated_at: '2026-05-01T00:00:00Z' }),
+    ]
+    expect(buildUnits(items, { sort: 'newest' }).map((u) => u.key)).toEqual(['g:11', 'd:c'])
+  })
+
+  it('最热：组的热度口径 = 组内浏览最多的那一件', () => {
+    const items = [
+      s('a', [T1], { view_count: 3 }),
+      s('b', [T1], { view_count: 900 }),
+      s('c', undefined, { view_count: 100 }),
+    ]
+    expect(buildUnits(items, { sort: 'popular' }).map((u) => u.key)).toEqual(['g:11', 'd:c'])
+  })
+
+  it('评分：组的评分口径 = 组内最高分；零票作品排在所有有票作品之后', () => {
+    const items = [
+      s('a', [T1], { rating_avg: 4.9, rating_count: 5 }),
+      s('b', [T1], { rating_avg: 2.0, rating_count: 9 }),
+      s('c', undefined, { rating_avg: 4.2, rating_count: 7 }),
+      s('z', undefined, { rating_avg: 0, rating_count: 0 }),
+    ]
+    expect(buildUnits(items, { sort: 'rating' }).map((u) => u.key)).toEqual(['g:11', 'd:c', 'd:z'])
+  })
+
+  it('random / prompt 模式不重排：服务端顺序原样保留', () => {
+    const items = [
+      s('a', undefined, { view_count: 1 }),
+      s('b', [T1], { view_count: 900 }),
+      s('c', [T1], { view_count: 900 }),
+    ]
+    expect(buildUnits(items, { sort: 'none' }).map((u) => u.key)).toEqual(['d:a', 'g:11'])
+    expect(buildUnits(items).map((u) => u.key)).toEqual(['d:a', 'g:11'])
+  })
+
+  it('代表件 = 组内最好的一件，且组内展示序把它放在第一位', () => {
+    const items = [
+      s('old', [T1], { updated_at: '2026-01-01T00:00:00Z' }),
+      s('new', [T1], { updated_at: '2026-09-01T00:00:00Z' }),
+    ]
+    const g = buildUnits(items, { sort: 'newest' })[0]
+    if (g.kind !== 'group') throw new Error('这里应当是一个组单元')
+    expect(g.rep.slug).toBe('new')
+    expect(g.group.items.map((x) => x.slug)).toEqual(['new', 'old'])
+    expect(groupRepresentative(items, 'newest').slug).toBe('new')
+  })
+
+  it('groupScalar 逐项取最大；空组返回 [0, 0]', () => {
+    expect(groupScalar([{ slug: 'a', view_count: 2 }, { slug: 'b', view_count: 9 }], 'popular')).toEqual([9, 0])
+    expect(groupScalar([], 'popular')).toEqual([0, 0])
+  })
+
+  it('排序稳定：同值单元按原出现序', () => {
+    const items = [
+      s('a', undefined, { view_count: 5 }),
+      s('b', [T1], { view_count: 5 }),
+      s('c', [T1], { view_count: 5 }),
+      s('d', undefined, { view_count: 5 }),
+    ]
+    expect(buildUnits(items, { sort: 'popular' }).map((u) => u.key)).toEqual(['d:a', 'g:11', 'd:d'])
   })
 })
