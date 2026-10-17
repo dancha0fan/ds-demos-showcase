@@ -127,7 +127,16 @@ def test_random_sort_without_filter_keeps_global_semantics(client):
 
     r = client.get("/api/v1/demos?sort=random&page_size=100").json()
     got = {i["slug"] for i in r["items"]}
-    assert {s1, s2} <= got, f"无过滤 random 应出全部：{sorted(got)}"
+    # 确定性判据：random 的池子（total）必须等于全局 approved 的 total ——「无过滤时不退化」
+    # 指的是池子没被收窄，不是「某两件必然被抽中」。
+    # 为什么不写 {s1,s2} <= got：库是跨文件共享的，池子一旦超过 page_size（100），
+    # 随机采样就不保证包含特定两件（107 件里抽 100 件，漏掉某件的概率约 6.5%）——
+    # 那是概率问题，不是语义退化；这条断言曾在 CI 上偶发红过（2026-10-17，池子 109 件）。
+    ref = client.get("/api/v1/demos?status=approved&page_size=1").json()
+    assert r["total"] == ref["total"], f"无过滤 random 的池子应与全局一致：{r['total']} vs {ref['total']}"
+    if r["total"] <= 100:
+        # 池子能装进一页时，「新建的两件一定在返回里」才是有效断言
+        assert {s1, s2} <= got, f"无过滤 random 应出全部：{sorted(got)}"
     # total/items 同源的口径：items 长度必须是 min(total, page_size)。
     # 不写 total == len(items)——那要求全库恰好 ≤100 件，而库是跨文件共享的（别的用例
     # 也会留下已上架作品），会把「同源」这个真命题测成「全库很小」这个假前提。
