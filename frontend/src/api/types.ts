@@ -98,6 +98,9 @@ export interface DemoSummary {
   download_count: number
   comment_count: number
   created_at: string
+  /** 内容更新时间（后端 Demo.updated_at：只在内容被改时显式赋值，无 onupdate）。
+   *  作品库 demo 组的排序口径 = 组内最近更新的一件。 */
+  updated_at?: string
   status?: string
   /** web=网页应用 zip=文件包 link=外部链接 image=图像作品（一期） */
   demo_type?: 'web' | 'zip' | 'link' | 'image'

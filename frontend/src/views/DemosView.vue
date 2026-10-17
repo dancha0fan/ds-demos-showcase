@@ -8,14 +8,14 @@ import type { DemoSummary, TagKeyInfo } from '../api/types'
 import { tagLabel } from '../utils/funMode'
 import { guessVendor } from '../utils/tagGroups'
 import { chipLabel, intBounds, intBoundsOf, quickPresets, vendorDot } from '../utils/demoFacets'
-import { dedupeBySlug, groupByTask, isFoldableGroup, type TaskGroup } from '../utils/demoList'
+import { buildUnits, dedupeBySlug, type ListUnit, type UnitSortMode } from '../utils/demoList'
 import { useDemoFilters } from '../composables/useDemoFilters'
 import { useFacetDrawer } from '../composables/useFacetDrawer'
 import type { QuickPreset } from '../utils/demoFacets'
 import { t, keyLabel, vendorLabel } from '../i18n'
 import { isImeComposing } from '../utils/ime'
-import CoverImg from '../components/CoverImg.vue'
 import DemoCard from '../components/DemoCard.vue'
+import DemoGroupStack from '../components/DemoGroupStack.vue'
 import EmptyBox from '../components/EmptyBox.vue'
 import MasonryGrid from '../components/MasonryGrid.vue'
 import PromptDemoCard from '../components/PromptDemoCard.vue'
@@ -62,9 +62,10 @@ const refreshing = ref(false)
 const error = ref('')
 const hasMore = ref(true)
 
-// ---------- 同题折叠（作品库按稳定题目 slug 分组）----------
-// 分组数据层在 utils/demoList（纯函数可单测）：分组键 = 题目 slug（列表接口随作品返回），
-// 不按标题猜同题；组序跟随当前排序，筛选/分页语义不动。开关记忆与分面钉住同款 localStorage。
+// ---------- 同题 demo 组（堆叠卡单元）----------
+// 分组数据层在 utils/demoList（纯函数可单测）：分组键 = 题目 id（列表接口随作品返回），
+// 不按标题猜同题。一个组在瀑布流里占**一个格子**（堆叠卡），不再用整行组头。
+// 组级排序口径：时间=组内最近更新、热度=组内浏览最多、评分=组内最高分。
 const TG_PREF_KEY = 'demos.taskGroup'
 const taskGroupOn = ref(readTgPref())
 function readTgPref(): boolean {
@@ -82,16 +83,41 @@ function setTaskGroup(on: boolean) {
     /* 隐私模式等存储不可用：仅本会话生效 */
   }
 }
-const demoGroups = computed(() => groupByTask(demos.value, preferTaskSlug.value || undefined))
-/** 一个真题组都没有时，「未挂题作品」组头就是对整页的无意义标注 */
-const hasTaskGroups = computed(() => demoGroups.value.some((g) => g.key))
-// 展开态按组键记忆；换筛选（reset）清空——旧展开态对新数据集没有意义
+/**
+ * 当前排序 → 组级排序口径：
+ * - 最新：组内**最近更新**的那一件（Demo.updated_at，只在内容被改时变）
+ * - 最热：组内**浏览最多**的那一件
+ * - 评分：组内**最高分**的那一件（rating 入口暂未接，规则先备好）
+ * - 随机 / 提示词模式：`none` —— 服务端顺序必须原样保留，客户端不许重排
+ */
+const unitSort = computed<UnitSortMode>(() => {
+  if (cardMode.value === 'prompt') return 'none'
+  const s = String(sort.value)
+  if (s === 'newest' || s === 'popular' || s === 'rating') return s
+  return 'none'
+})
+/** 瀑布流的渲染单元：一件作品，或一个同题组（堆叠卡） */
+const units = computed(() =>
+  buildUnits(demos.value, { preferTaskSlug: preferTaskSlug.value || undefined, sort: unitSort.value }),
+)
+// 展开态按单元 key 记忆；换筛选（reset）清空——旧展开态对新数据集没有意义
 const tgOpen = ref<Record<string, boolean>>({})
-function isTgOpen(g: TaskGroup<DemoSummary>) {
-  return !!tgOpen.value[g.key!]
+function isUnitOpen(u: ListUnit<DemoSummary>) {
+  return u.kind === 'group' && !!tgOpen.value[u.key]
 }
-function toggleTg(g: TaskGroup<DemoSummary>) {
-  tgOpen.value = { ...tgOpen.value, [g.key!]: !isTgOpen(g) }
+function toggleUnit(u: ListUnit<DemoSummary>) {
+  tgOpen.value = { ...tgOpen.value, [u.key]: !isUnitOpen(u) }
+}
+
+// 模板里对槽位 item 做窄化的小工具（MasonryGrid 的 item 是 unknown）
+function isGroupUnit(item: unknown): boolean {
+  return (item as ListUnit<DemoSummary>).kind === 'group'
+}
+function groupOf(item: unknown) {
+  return item as Extract<ListUnit<DemoSummary>, { kind: 'group' }>
+}
+function demoOf(item: unknown): DemoSummary {
+  return (item as Extract<ListUnit<DemoSummary>, { kind: 'demo' }>).demo
 }
 
 // ---------- 返回恢复：离开时记录已加载页数与滚动位，回来先补齐深度再落点 ----------
@@ -703,50 +729,22 @@ onBeforeUnmount(() => observer?.disconnect())
           </div>
         </div>
 
-        <!-- 同题折叠：多件真题组默认收起为封面摘要，可展开；单件组/未挂题组原样平铺 -->
+        <!-- 同题 demo 组：组 = 堆叠卡，占瀑布流的一个格子；点一下在当前格位展开（不再用整行组头） -->
         <template v-if="taskGroupOn">
-          <section v-for="g in demoGroups" :key="g.key ?? '__ungrouped'" class="tg-group">
-            <div v-if="g.key" class="tg-head">
-              <button
-                v-if="isFoldableGroup(g)"
-                class="tg-toggle"
-                type="button"
-                :aria-expanded="isTgOpen(g)"
-                @click="toggleTg(g)"
-              >
-                <span class="tg-caret" :class="{ open: isTgOpen(g) }" aria-hidden="true">▸</span>
-                <span class="tg-title">{{ g.task!.title }}</span>
-                <!-- 口径诚实：分组作用于已加载切片，这里只是已加载数，不冒充题目总件数 -->
-                <span class="tg-count">{{ t('demos.tgCount', '已加载 {n} 件', { n: g.items.length }) }}</span>
-              </button>
-              <span v-else class="tg-toggle tg-toggle--static">
-                <span class="tg-title">{{ g.task!.title }}</span>
-                <span class="tg-count">{{ t('demos.tgCount', '已加载 {n} 件', { n: g.items.length }) }}</span>
-              </span>
-              <RouterLink class="tg-link" :to="`/tasks/${g.task!.slug}`">{{ t('demos.tgOpen', '题目页 →') }}</RouterLink>
-            </div>
-            <div v-else-if="hasTaskGroups" class="tg-head tg-head--plain">
-              <span class="tg-toggle tg-toggle--static">
-                <span class="tg-title">{{ t('demos.tgUngrouped', '未挂题作品') }}</span>
-                <span class="tg-count">{{ g.items.length }}</span>
-              </span>
-            </div>
-
-            <div v-if="isFoldableGroup(g) && !isTgOpen(g)" class="tg-summary">
-              <RouterLink v-for="d in g.items.slice(0, 3)" :key="d.slug" class="tg-thumb" :to="`/demo/${d.slug}`">
-                <CoverImg v-if="d.cover_url" :src="d.cover_url" tier="thumb" :alt="d.title" />
-                <span v-else class="tg-thumb-fallback" aria-hidden="true">{{ d.title[0] }}</span>
-              </RouterLink>
-              <span v-if="g.items.length > 3" class="tg-more">+{{ g.items.length - 3 }}</span>
-              <span class="tg-hint muted">{{ t('demos.tgExpand', '展开查看全部') }}</span>
-            </div>
-            <MasonryGrid v-else :items="g.items" :item-key="(d: unknown) => (d as DemoSummary).slug">
-              <template #default="{ item }">
-                <PromptDemoCard v-if="cardMode === 'prompt'" :demo="item as DemoSummary" />
-                <DemoCard v-else :demo="item as DemoSummary" />
-              </template>
-            </MasonryGrid>
-          </section>
+          <MasonryGrid :items="units" :item-key="(u: unknown) => (u as ListUnit<DemoSummary>).key">
+            <template #default="{ item }">
+              <DemoGroupStack
+                v-if="isGroupUnit(item)"
+                :group="groupOf(item).group"
+                :rep="groupOf(item).rep"
+                :open="isUnitOpen(groupOf(item))"
+                :prompt-mode="cardMode === 'prompt'"
+                @toggle="toggleUnit(groupOf(item))"
+              />
+              <PromptDemoCard v-else-if="cardMode === 'prompt'" :demo="demoOf(item)" />
+              <DemoCard v-else :demo="demoOf(item)" />
+            </template>
+          </MasonryGrid>
         </template>
         <MasonryGrid v-else :items="demos" :item-key="(d: unknown) => (d as DemoSummary).slug">
           <template #default="{ item }">
@@ -1224,113 +1222,13 @@ span.fp-group-head {
   .fp-caret {
     transition: none;
   }
-  .tg-caret {
-    transition: none;
-  }
 }
 
 /* ============================================================
-   同题折叠（作品库按题分组）：组头=实线分割 + 44px 触达；
-   收起摘要=3 张缩略 + 余量计数。全部 scoped，令牌带字面回落。
+   同题 demo 组的样式已随「整行组头 → 堆叠卡」迁到
+   components/DemoGroupStack.vue 的 scoped 块；本文件只留
+   下面的 .tg-switch（「按题折叠」开关）。
    ============================================================ */
-.tg-group {
-  border-top: 2px solid var(--ink, #000);
-  padding-top: var(--sp-8);
-}
-.tg-group:first-of-type {
-  border-top: none;
-  padding-top: 0;
-}
-.tg-head {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-8);
-  min-height: 44px; /* 触达底线 */
-  margin-bottom: var(--sp-8);
-}
-.tg-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-8);
-  background: none;
-  border: none;
-  padding: var(--sp-4) 0;
-  font: inherit;
-  cursor: pointer;
-  color: var(--ink, #000);
-  text-align: left;
-}
-span.tg-toggle--static {
-  cursor: default;
-}
-.tg-caret {
-  display: inline-block;
-  font-weight: 900;
-  transition: transform var(--b-dur, 150ms) var(--b-ease, cubic-bezier(0, 0, 0.2, 1));
-}
-.tg-caret.open {
-  transform: rotate(90deg);
-}
-.tg-title {
-  font-family: var(--font-heading, sans-serif);
-  font-weight: 900;
-  font-size: var(--fs-14);
-}
-.tg-count {
-  font-family: var(--font-body, monospace);
-  font-size: var(--fs-11);
-  font-weight: 700;
-  background: var(--paper, #fff); /* P6：计数不用行动色 */
-  color: var(--ink, #000);
-  border: 2px solid var(--ink, #000);
-  padding: 0 var(--sp-6);
-  white-space: nowrap;
-}
-.tg-link {
-  margin-left: auto;
-  font-size: var(--fs-12);
-  white-space: nowrap;
-}
-.tg-summary {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-8);
-  padding: 0 0 var(--sp-12);
-}
-.tg-thumb {
-  width: 64px;
-  height: 48px;
-  border: 2px solid var(--ink, #000);
-  overflow: hidden;
-  display: block;
-  flex: none;
-}
-.tg-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.tg-thumb-fallback {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--wash-mint, #4ecdc4);
-  font-family: var(--font-heading, sans-serif);
-  font-weight: 900;
-  color: var(--ink, #000);
-}
-.tg-more {
-  font-family: var(--font-body, monospace);
-  font-size: var(--fs-12);
-  font-weight: 700;
-}
-.tg-hint {
-  font-size: var(--fs-11);
-  margin-left: auto;
-}
 
 /* B2 键盘可达：.vendor-strip-head 的结构样式（flex/gap/padding/hover）在 styles/pages/demos.css，
    冻结区不动；UA 默认按钮样式的清零收口在 styles/base/reset.css 的
@@ -1399,8 +1297,7 @@ button[data-reset].vendor-strip-head:focus-visible {
 }
 
 /* ---- 换筛选时：旧结果压暗留在原位，状态条吸顶浮在结果上方（零高度，不推挤布局） ---- */
-.is-refreshing > .masonry,
-.is-refreshing > .tg-group {
+.is-refreshing > .masonry {
   opacity: 0.45;
 }
 .refresh-flag {

@@ -212,6 +212,7 @@ export const en = {
     tgOpen: 'Task page →',
     tgUngrouped: 'Works without a task',
     tgExpand: 'Expand to see all',
+    tgCollapse: 'Collapse',
   },
 
   leaderboard: {

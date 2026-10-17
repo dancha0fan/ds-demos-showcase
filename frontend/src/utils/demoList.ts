@@ -100,3 +100,145 @@ export function dedupeBySlug<T extends { slug: string }>(
   }
   return { items: fresh.length ? [...existing, ...fresh] : [...existing], added: fresh.length }
 }
+
+// ---------------------------------------------------------------- 作品库单元（demo 组）
+
+/**
+ * 作品库的渲染单元：一件作品，或一个同题组（≥2 件，渲染成堆叠卡）。
+ *
+ * 为什么要「单元」这一层：原先同题组是「整行组头 + 折叠摘要」，会霸占一整行、
+ * 打断瀑布流。改成单元后，一个组就是瀑布流里的一个格子（堆叠卡），
+ * 单件作品照旧是一张普通卡 —— 两类单元在同一套网格与同一套排序里混排。
+ */
+export type ListUnit<T extends GroupableDemo> =
+  | { kind: 'demo'; demo: T; key: string }
+  | { kind: 'group'; group: TaskGroup<T>; rep: T; key: string }
+
+/** 单元排序要用的作品字段（DemoSummary 的兼容子集） */
+export interface GroupSortableDemo extends GroupableDemo {
+  created_at?: string
+  updated_at?: string
+  view_count?: number
+  rating_avg?: number
+  rating_count?: number
+}
+
+/** 作品库的排序口径；`none` = 不重排（随机/提示词模式必须原样保留服务端顺序） */
+export type UnitSortMode = 'newest' | 'popular' | 'rating' | 'none'
+
+/**
+ * 二元排序值（主序, 次序）。用元组而不是拼成一个魔数：
+ * 评分同分时按票数排，票数为 0 的一律排在所有有票作品之后（没证据不等于 0 分）。
+ */
+export type SortTuple = readonly [number, number]
+
+function timeOf(d: GroupSortableDemo): number {
+  const t = Date.parse(d.updated_at || d.created_at || '')
+  return Number.isFinite(t) ? t : 0
+}
+
+/** 单件作品的排序值 */
+export function demoScalar(d: GroupSortableDemo, mode: UnitSortMode): SortTuple {
+  switch (mode) {
+    case 'newest':
+      return [timeOf(d), 0]
+    case 'popular':
+      return [d.view_count ?? 0, 0]
+    case 'rating':
+      return d.rating_count ? [d.rating_avg ?? 0, d.rating_count] : [-1, 0]
+    default:
+      return [0, 0]
+  }
+}
+
+/** 组的排序值 = 组内逐项取最大（时间=最近更新、热度=浏览最多、评分=最高分） */
+export function groupScalar(items: readonly GroupSortableDemo[], mode: UnitSortMode): SortTuple {
+  let best: SortTuple = [-Infinity, -Infinity]
+  for (const d of items) {
+    const v = demoScalar(d, mode)
+    if (v[0] > best[0] || (v[0] === best[0] && v[1] > best[1])) best = v
+  }
+  return best[0] === -Infinity ? [0, 0] : best
+}
+
+/** 组的代表件（堆叠卡最上面那张）：按当前排序口径取「最好的一件」；无口径时取第一件 */
+export function groupRepresentative<T extends GroupSortableDemo>(items: readonly T[], mode: UnitSortMode): T {
+  if (mode === 'none' || items.length < 2) return items[0]
+  let best = items[0]
+  const bestV = demoScalar(best, mode)
+  for (const d of items.slice(1)) {
+    const v = demoScalar(d, mode)
+    if (v[0] > bestV[0] || (v[0] === bestV[0] && v[1] > bestV[1])) {
+      best = d
+    }
+  }
+  return best
+}
+
+/**
+ * 把已加载的作品切片整理成渲染单元：
+ * - 同题组（≥2 件）产出一个 `group` 单元；单件组与未挂题作品产出普通 `demo` 单元；
+ * - 组在它**第一件作品出现的位置**产出（未重排时保持服务端顺序）；
+ * - `sort` 不是 `none` 时按组级口径重排全部单元（稳定：同值按原出现序）。
+ *
+ * 注意：分组与重排都只作用于**已加载切片**（服务端分页不变），
+ * 所以组的排序值只代表「已加载组内最好的那件」，不是该题全量数据的口径。
+ */
+export function buildUnits<T extends GroupSortableDemo>(
+  items: readonly T[],
+  opts: { preferTaskSlug?: string; sort?: UnitSortMode } = {},
+): ListUnit<T>[] {
+  const mode = opts.sort ?? 'none'
+  const prefer = opts.preferTaskSlug
+  const groups = new Map<number, TaskGroup<T>>()
+  for (const g of groupByTask(items, prefer)) {
+    if (g.key !== null) groups.set(g.key, g)
+  }
+
+  const units: ListUnit<T>[] = []
+  const emitted = new Set<number>()
+  for (const d of items) {
+    const task = primaryTask(d, prefer)
+    if (!task) {
+      units.push({ kind: 'demo', demo: d, key: `d:${d.slug}` })
+      continue
+    }
+    const g = groups.get(task.id)!
+    if (g.items.length < 2) {
+      units.push({ kind: 'demo', demo: d, key: `d:${d.slug}` })
+      continue
+    }
+    if (emitted.has(task.id)) continue
+    emitted.add(task.id)
+    units.push({
+      kind: 'group',
+      group: { ...g, items: sortByMode(g.items, mode) },
+      rep: groupRepresentative(g.items, mode),
+      key: `g:${task.id}`,
+    })
+  }
+
+  if (mode === 'none') return units
+  const order = new Map(units.map((u, i) => [u.key, i] as const))
+  const value = new Map(
+    units.map((u) => [u.key, u.kind === 'group' ? groupScalar(u.group.items, mode) : demoScalar(u.demo, mode)] as const),
+  )
+  return [...units].sort((a, b) => {
+    const va = value.get(a.key)!
+    const vb = value.get(b.key)!
+    if (vb[0] !== va[0]) return vb[0] - va[0]
+    if (vb[1] !== va[1]) return vb[1] - va[1]
+    return (order.get(a.key) ?? 0) - (order.get(b.key) ?? 0)
+  })
+}
+
+/** 组内展示序：与组级排序同口径（代表件落在第一位） */
+function sortByMode<T extends GroupSortableDemo>(items: readonly T[], mode: UnitSortMode): T[] {
+  if (mode === 'none' || items.length < 2) return [...items]
+  return [...items].sort((a, b) => {
+    const va = demoScalar(a, mode)
+    const vb = demoScalar(b, mode)
+    return vb[0] - va[0] || vb[1] - va[1]
+  })
+}
+
