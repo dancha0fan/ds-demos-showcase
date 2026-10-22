@@ -253,6 +253,9 @@ class DemoSummaryOut(BaseModel):
     rating_god: int = 0
     rating_ghost: int = 0
     prompt: str = ""
+    # 同提示词结果需显式展示测试条件；未知保持 None，不推断为首轮。
+    gen_rounds: int | None = None
+    gen_minutes: int | None = None
     models: list[DemoModelBriefOut] = []
     tasks: list[DemoTaskBriefOut] = []
 
@@ -753,6 +756,39 @@ class TaskListOut(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ---------- Prompt library ----------
+class PromptSummaryOut(BaseModel):
+    id: int
+    title: str
+    content: str
+    category: str | None = None
+    source_url: str | None = None
+    source: Literal["contributed", "demo"]
+    created_at: datetime
+    demos_total: int
+    models_total: int
+
+
+class PromptListOut(BaseModel):
+    items: list[PromptSummaryOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class PromptProposalIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    content: str = Field(min_length=1, max_length=20000)
+    category: str | None = Field(default=None, max_length=64)
+    source_url: str | None = Field(default=None, max_length=2048)
+
+
+class PromptProposalOut(BaseModel):
+    status: Literal["pending", "existing"]
+    suggestion_id: int | None = None
+    prompt_id: int | None = None
 
 
 class TaskProposalIn(BaseModel):

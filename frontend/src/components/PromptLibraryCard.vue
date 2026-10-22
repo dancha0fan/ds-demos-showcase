@@ -1,0 +1,42 @@
+<script setup lang="ts">
+import type { PromptSummary } from '../api/types'
+import { t } from '../i18n'
+import CopyButton from './CopyButton.vue'
+
+defineProps<{ prompt: PromptSummary }>()
+</script>
+
+<template>
+  <article class="card card-default pl-card">
+    <header class="pl-card-head">
+      <div class="pl-card-heading">
+        <span v-if="prompt.category" class="pl-card-category">{{ prompt.category }}</span>
+        <h2 class="pl-card-title"><RouterLink :to="`/prompts/${prompt.id}`">{{ prompt.title }}</RouterLink></h2>
+      </div>
+      <CopyButton :text="prompt.content" :label="t('prompts.copy', '复制提示词')" />
+    </header>
+    <p class="pl-card-content">{{ prompt.content.slice(0, 480) }}{{ prompt.content.length > 480 ? '…' : '' }}</p>
+    <footer class="pl-card-foot">
+      <div class="pl-card-counts">
+        <span v-if="prompt.demos_total">{{ t('prompts.resultCount', '{n} 件作品', { n: prompt.demos_total }) }}</span>
+        <span v-else>{{ t('prompts.awaitingResults', '等待第一份测试结果') }}</span>
+        <span v-if="prompt.models_total">{{ t('prompts.modelCount', '{n} 个模型', { n: prompt.models_total }) }}</span>
+      </div>
+    </footer>
+  </article>
+</template>
+
+<style scoped>
+.pl-card { display: flex; flex-direction: column; gap: var(--sp-16); min-width: 0; padding: var(--sp-24); }
+.pl-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-12); }
+.pl-card-heading { min-width: 0; }
+.pl-card-category { display: block; color: var(--ink-soft); font-size: var(--fs-12); margin-bottom: var(--sp-6); }
+.pl-card-title { margin: 0; font-family: var(--font-heading); font-size: var(--fs-20); line-height: 1.35; overflow-wrap: anywhere; }
+.pl-card-title a { color: inherit; text-decoration: none; }
+.pl-card-title a:hover { text-decoration: underline; }
+.pl-card-content { flex: 1; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-code); font-size: var(--fs-14); line-height: 1.75; display: -webkit-box; -webkit-line-clamp: 7; -webkit-box-orient: vertical; overflow: hidden; }
+.pl-card-foot { border-top: var(--border-w-sm) solid var(--ink); padding-top: var(--sp-12); display: flex; align-items: center; justify-content: space-between; gap: var(--sp-12); flex-wrap: wrap; }
+.pl-card-counts { display: flex; gap: var(--sp-12); flex-wrap: wrap; font-size: var(--fs-12); color: var(--ink-soft); }
+@media (max-width: 720px) { .pl-card { padding: var(--sp-16); } .pl-card-title { font-size: var(--fs-18); } }
+@media (max-width: 480px) { .pl-card-head { flex-wrap: wrap; } }
+</style>

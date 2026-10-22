@@ -20,7 +20,7 @@ from .config import settings
 from .database import Base, SessionLocal, engine, get_db
 from .errors import AppError
 from .models import ForumTopic, Setting, Tag, TagKey, User
-from .routers import admin, admin_entities, announcements, auth, collections, comments, demos, explore, forum, history, meta, models, notifications, peek, ratings, sessions, stats, tags, tasks, users
+from .routers import admin, admin_entities, announcements, auth, collections, comments, demos, explore, forum, history, meta, models, notifications, peek, prompts, ratings, sessions, stats, tags, tasks, users
 from .security import hash_password
 from .services import oss
 from .services import scope as scope_service
@@ -136,6 +136,7 @@ app.include_router(notifications.router, prefix=API_PREFIX)
 # v2 实体（B1）：Model / Task / Explore
 app.include_router(models.router, prefix=API_PREFIX)
 app.include_router(tasks.router, prefix=API_PREFIX)
+app.include_router(prompts.router, prefix=API_PREFIX)
 app.include_router(explore.router, prefix=API_PREFIX)
 # 侧滑"瞄一眼"的紧凑摘要（Demo 页第 3 期）
 app.include_router(peek.router, prefix=API_PREFIX)
@@ -622,6 +623,12 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     _ensure_demo_columns()
+    # 旧库可能尚未执行 v2 全模型迁移；这里只补缺失的提示词关联，不动其他实体。
+    from .services.prompt_library_service import backfill_missing_prompt_links
+
+    with SessionLocal() as prompt_db:
+        backfill_missing_prompt_links(prompt_db)
+        prompt_db.commit()
     _ensure_tag_columns()
     _ensure_tag_key_columns()
     _ensure_announcement_columns()

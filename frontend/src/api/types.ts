@@ -107,6 +107,9 @@ export interface DemoSummary {
   external_url?: string | null
   /** 第一轮提示词（列表摘要返回，供提示词模式展示/复制） */
   prompt?: string
+  /** 投稿者填写的生成条件；缺失时不推测为首轮。 */
+  gen_rounds?: number | null
+  gen_minutes?: number | null
   rating_avg?: number
   rating_count?: number
   rating_god?: number
@@ -238,6 +241,39 @@ export interface TaskProposalIn {
   description?: string
   category?: string | null
 }
+
+/** 固定正文的一条提示词；作品数量仅统计当前视区的公开结果。 */
+export interface PromptSummary {
+  id: number
+  title: string
+  content: string
+  category: string | null
+  source_url: string | null
+  source: 'contributed' | 'demo'
+  created_at: string
+  demos_total: number
+  models_total: number
+}
+
+export interface PromptListParams {
+  q?: string
+  category?: string
+  sort?: 'newest' | 'most_tested'
+  has_results?: boolean
+  page?: number
+  page_size?: number
+}
+
+export interface PromptProposalIn {
+  title: string
+  content: string
+  category?: string | null
+  source_url?: string | null
+}
+
+export type PromptProposalOut =
+  | { status: 'pending'; suggestion_id: number; prompt_id?: null }
+  | { status: 'existing'; prompt_id: number; suggestion_id?: null }
 
 export interface TaskProposalOut {
   status: 'pending'
@@ -559,7 +595,7 @@ export interface AdminTaskDetail {
 /** v2 B4′：治理收件箱条目（kind/payload 组合，approve 才由 service 执行） */
 export interface SuggestionItem {
   id: number
-  kind: 'new_model' | 'new_task' | 'task_match' | 'merge_model' | 'merge_task' | 'alias' | 'retag_demo'
+  kind: 'new_model' | 'new_task' | 'new_prompt' | 'task_match' | 'merge_model' | 'merge_task' | 'alias' | 'retag_demo'
   payload: Record<string, unknown>
   confidence?: number | null
   source: 'user' | 'admin' | 'ai' | 'inferred' | 'external' | 'imported'

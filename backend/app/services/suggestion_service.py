@@ -114,6 +114,10 @@ def review(
     actor_type: str = "user",
 ) -> EntitySuggestion:
     """审核一条建议：approve 即调对应 service 真正落库（同事务 + 审计）。"""
+    if suggestion.kind == "new_prompt":
+        from . import prompt_library_service
+
+        prompt_library_service.lock_review(db, suggestion)
     if suggestion.status != "pending":
         raise HTTPException(status_code=409, detail="该建议已处理")
     if action not in ("approve", "reject"):
@@ -197,6 +201,14 @@ def _execute(db: Session, s: EntitySuggestion, payload: dict, actor_id: int | No
         if demo_ids:
             task_service.attach_demos(db, task, demo_ids, actor_id=actor_id, commit=False)
         return f"题目 {task.slug} 挂 {len(demo_ids)} 个作品"
+
+    if s.kind == "new_prompt":
+        from . import prompt_library_service
+
+        entry = prompt_library_service.publish_prompt(db, payload, created_by=s.created_by)
+        # 持久化目标 id，让已处理收件箱可直接打开条目，不从结果文案解析地址。
+        s.payload = json.dumps({**payload, "prompt_id": entry.prompt_id}, ensure_ascii=False)
+        return f"提示词 /prompts/{entry.prompt_id} 已收录"
 
     if s.kind == "task_match":
         task = task_service.get_task_or_404(db, payload.get("task_id") or s.ref_id or 0)

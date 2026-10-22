@@ -35,15 +35,15 @@ onMounted(() => {
 
 <template>
   <nav class="tabbar" :aria-label="t('app.tabbar.label', '底部导航')">
-    <RouterLink class="tb" :class="{ active: route.path === '/' }" to="/">
-      {{ t('app.tabbar.home', '首页') }}
-    </RouterLink>
     <RouterLink
       class="tb"
       :class="{ active: route.path.startsWith('/demos') || route.path.startsWith('/demo/') }"
       to="/demos"
     >
       {{ t('app.tabbar.works', '作品') }}
+    </RouterLink>
+    <RouterLink class="tb" :class="{ active: route.path.startsWith('/prompts') }" to="/prompts">
+      {{ t('app.tabbar.prompts', '提示词') }}
     </RouterLink>
     <!-- 中央上传 FAB：转化主件的物理地位（菲茨：拇指热区 56px 反色大目标）；CTA 随顶栏减法退到此处 -->
     <div class="fab-slot">

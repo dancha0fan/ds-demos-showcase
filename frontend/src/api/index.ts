@@ -55,6 +55,10 @@ import type {
   TaskDetail,
   TaskProposalIn,
   TaskProposalOut,
+  PromptSummary,
+  PromptListParams,
+  PromptProposalIn,
+  PromptProposalOut,
   TaskSuggestItem,
   SamePromptResult,
   PromptClusters,
@@ -90,6 +94,22 @@ const useMock = (import.meta.env.VITE_USE_MOCK ?? 'true') !== 'false'
 export const isMock = useMock
 
 const realApi = {
+  async listPrompts(params: PromptListParams = {}): Promise<Paginated<PromptSummary>> {
+    const { data } = await http.get('/prompts', { params })
+    return data
+  },
+  async getPrompt(id: number): Promise<PromptSummary> {
+    const { data } = await http.get(`/prompts/${id}`)
+    return data
+  },
+  async getPromptDemos(id: number, params: { page?: number; page_size?: number } = {}): Promise<Paginated<DemoSummary>> {
+    const { data } = await http.get(`/prompts/${id}/demos`, { params })
+    return data
+  },
+  async proposePrompt(payload: PromptProposalIn): Promise<PromptProposalOut> {
+    const { data } = await http.post('/prompts', payload)
+    return data
+  },
   // ---------- 认证 ----------
   async login(username: string, password: string): Promise<AuthResponse> {
     const { data } = await http.post('/auth/login', { username, password })
