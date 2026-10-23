@@ -626,17 +626,23 @@ def init_db() -> None:
         backfill_missing_prompt_links_once,
         ensure_prompt_search_index,
         mark_backfill_done,
+        mark_search_index_ready,
+        search_index_marked,
         sync_prompt_search_index,
     )
 
     with SessionLocal() as prompt_db:
         index_created = ensure_prompt_search_index(prompt_db)
+        # 标记缺失（升级首启/并发首启窗口）时也重灌一次：提交成功才打标，
+        # 未打标期间所有查询回退 LIKE；稳态（标记在、表在）保持零扫描。
+        fill_needed = index_created or not search_index_marked(prompt_db)
         linked = backfill_missing_prompt_links_once(prompt_db)
-        if index_created:
-            # 仅首次建索引表时首灌存量正文；此后靠逐条同步，稳态启动零扫描
+        if fill_needed:
             sync_prompt_search_index(prompt_db)
         prompt_db.commit()
     mark_backfill_done()
+    if fill_needed:
+        mark_search_index_ready()
     if linked:
         logger.info("启动回填：本次补关联 %s 件旧作品的 prompt_id", linked)
     _ensure_tag_columns()

@@ -6,9 +6,17 @@ import CopyButton from './CopyButton.vue'
 
 defineProps<{ prompt: PromptListItem }>()
 
-// 复制时才拉全文：列表项只带 480 字摘要（按需加载契约），点击复制按需取详情
+// 复制时才拉全文：列表项只带 480 字摘要（按需加载契约），点击复制按需取详情。
+// 缓存 Promise：已取正文复用、在途请求共享（连点只发一次）；失败不缓存，按钮可重试。
+const fullTextCache = new Map<number, Promise<string>>()
 function copyText(id: number) {
-  return api.getPrompt(id).then((r) => r.content)
+  let pending = fullTextCache.get(id)
+  if (!pending) {
+    pending = api.getPrompt(id).then((r) => r.content)
+    pending.catch(() => fullTextCache.delete(id))
+    fullTextCache.set(id, pending)
+  }
+  return pending
 }
 </script>
 

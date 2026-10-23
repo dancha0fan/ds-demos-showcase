@@ -494,6 +494,45 @@ def test_demo_upload_prompt_is_searchable(client, key):
     assert rows["items"][0]["content_excerpt"].startswith(key)
 
 
+def test_search_falls_back_when_fts_unready_or_emptied(client, key):
+    """就绪标记缺失（并发首启窗口）与索引被清空（人为损坏）都必须回退 LIKE，不静默漏正文。
+
+    回归点：表在数据空时 `_fts_candidate_ids` 返回 [] 曾导致正文条件被整体省略、只搜标题。
+    """
+    from sqlalchemy import text as sql_text
+
+    from app.services import prompt_library_service as svc
+
+    body = key + " 就绪标记回退正文串"
+    seed_demo(key, seed_prompt(body))
+
+    def hit():
+        rows = client.get("/api/v1/prompts", params={"q": "就绪标记回退正文串"}).json()
+        assert rows["total"] == 1, rows
+        return rows["items"][0]["id"]
+
+    with SessionLocal() as db:
+        pid = hit()
+        # a) 标记缺失（并发首启窗口：表可见但首灌未提交）→ 必须回退 LIKE
+        db.query(Setting).filter(Setting.key == svc.FTS_READY_KEY).delete()
+        db.commit()
+        assert svc._fts_candidate_ids(db, "就绪标记回退正文串") is None
+        assert hit() == pid
+        # b) 标记在场但索引被清空（人为损坏）→ 空候选回退 LIKE，不静默漏
+        svc.mark_search_index_ready()
+        db.execute(sql_text("DELETE FROM prompt_fts"))
+        db.commit()
+        assert svc._fts_candidate_ids(db, "就绪标记回退正文串") is None
+        assert hit() == pid
+        # 恢复现场：重灌全部缺位正文 + 重新打标，避免污染其他用例
+        svc.sync_prompt_search_index(db)
+        db.commit()
+    svc.mark_search_index_ready()
+    with SessionLocal() as db:
+        assert svc._fts_candidate_ids(db, "就绪标记回退正文串") is not None
+        assert hit() == pid
+
+
 def test_backfill_mark_skips_steady_state(client, key):
     from app.services.prompt_library_service import (
         BACKFILL_MARK_KEY,

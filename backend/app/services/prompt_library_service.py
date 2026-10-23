@@ -16,6 +16,9 @@ from .scope import VALID_SCOPES, scope_contains_filter
 PROMPT_EXCERPT_LEN = 480
 # 回填版本标记：完整跑过一次即打标，稳态启动不再扫描；手动重跑仍走 backfill_missing_prompt_links。
 BACKFILL_MARK_KEY = "prompt_backfill_links_done"
+# FTS 就绪标记：trigram 表的 CREATE 对其他连接立即可见，而首灌随启动事务提交——
+# 并发首启窗口内其他进程可能看到空表；标记未打前查询一律回退 LIKE，宁可慢不可漏。
+FTS_READY_KEY = "prompt_fts_ready"
 
 
 def normalize_content(content: str) -> str:
@@ -70,11 +73,15 @@ def _fts_candidate_ids(db: Session, q: str) -> list[int] | None:
     """正文候选 id 预筛；None 表示本查询不走 FTS（调用方回退全表 icontains）。"""
     if len(q) < 3 or not _search_index_ready(db):
         return None
+    if db.get(Setting, FTS_READY_KEY) is None:
+        # 就绪标记未打（并发首启窗口/首灌未提交）：表可能为空，回退 LIKE
+        return None
     phrase = '"' + q.replace('"', '""') + '"'
     rows = db.execute(text("SELECT rowid FROM prompt_fts WHERE prompt_fts MATCH :m"), {"m": phrase}).all()
     ids = [r[0] for r in rows]
-    if len(ids) > 10_000:
-        # 命中面过大时预筛已无收益，退回全表 LIKE，同时避开 in_ 绑定参数数上限
+    if not ids or len(ids) > 10_000:
+        # 空候选也可能是索引被清空/损坏——回退 LIKE 保证不静默漏正文；
+        # 命中面过大（>1 万）时预筛无收益，同时避开 in_ 绑定参数数上限。
         return None
     return ids
 
@@ -115,6 +122,25 @@ def mark_backfill_done() -> None:
     try:
         with SessionLocal() as db:
             db.add(Setting(key=BACKFILL_MARK_KEY, value="1"))
+            db.commit()
+    except (IntegrityError, OperationalError):
+        pass
+
+
+def search_index_marked(db: Session) -> bool:
+    """就绪标记是否已打；init_db 决定是否需要重灌时使用。"""
+    return db.get(Setting, FTS_READY_KEY) is not None
+
+
+def mark_search_index_ready() -> None:
+    """FTS 首灌随启动事务提交成功后打标；模式与 mark_backfill_done 一致（独立短事务+冲突容忍）。"""
+    from sqlalchemy.exc import IntegrityError, OperationalError
+
+    from ..database import SessionLocal
+
+    try:
+        with SessionLocal() as db:
+            db.add(Setting(key=FTS_READY_KEY, value="1"))
             db.commit()
     except (IntegrityError, OperationalError):
         pass
