@@ -1,9 +1,15 @@
 <script setup lang="ts">
-import type { PromptSummary } from '../api/types'
+import type { PromptListItem } from '../api/types'
+import { api } from '../api'
 import { t } from '../i18n'
 import CopyButton from './CopyButton.vue'
 
-defineProps<{ prompt: PromptSummary }>()
+defineProps<{ prompt: PromptListItem }>()
+
+// 复制时才拉全文：列表项只带 480 字摘要（按需加载契约），点击复制按需取详情
+function copyText(id: number) {
+  return api.getPrompt(id).then((r) => r.content)
+}
 </script>
 
 <template>
@@ -13,9 +19,10 @@ defineProps<{ prompt: PromptSummary }>()
         <span v-if="prompt.category" class="pl-card-category">{{ prompt.category }}</span>
         <h2 class="pl-card-title"><RouterLink :to="`/prompts/${prompt.id}`">{{ prompt.title }}</RouterLink></h2>
       </div>
-      <CopyButton :text="prompt.content" :label="t('prompts.copy', '复制提示词')" />
+      <CopyButton :text="() => copyText(prompt.id)" :label="t('prompts.copy', '复制提示词')" />
     </header>
-    <p class="pl-card-content">{{ prompt.content.slice(0, 480) }}{{ prompt.content.length > 480 ? '…' : '' }}</p>
+    <!-- 摘要已由接口截断（≤480 字），截断时补省略号；不再本地 slice -->
+    <p class="pl-card-content">{{ prompt.content_excerpt }}{{ prompt.content_truncated ? '…' : '' }}</p>
     <footer class="pl-card-foot">
       <div class="pl-card-counts">
         <span v-if="prompt.demos_total">{{ t('prompts.resultCount', '{n} 件作品', { n: prompt.demos_total }) }}</span>

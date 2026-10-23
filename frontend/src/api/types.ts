@@ -242,17 +242,24 @@ export interface TaskProposalIn {
   category?: string | null
 }
 
-/** 固定正文的一条提示词；作品数量仅统计当前视区的公开结果。 */
-export interface PromptSummary {
+/** 列表项（GET /prompts）：正文只给最长 480 字的摘要（content_truncated 标记是否截断），
+ *  不回传全量 —— 列表页带宽与 DOM 大头在正文，按需走详情接口取全文。 */
+export interface PromptListItem {
   id: number
   title: string
-  content: string
+  content_excerpt: string
+  content_truncated: boolean
   category: string | null
   source_url: string | null
   source: 'contributed' | 'demo'
   created_at: string
   demos_total: number
   models_total: number
+}
+
+/** 详情（GET /prompts/{id}）：列表字段 + 完整正文。 */
+export interface PromptSummary extends PromptListItem {
+  content: string
 }
 
 export interface PromptListParams {

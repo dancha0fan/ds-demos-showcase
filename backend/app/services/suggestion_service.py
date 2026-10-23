@@ -249,6 +249,21 @@ def _execute(db: Session, s: EntitySuggestion, payload: dict, actor_id: int | No
 # ---------------- 查询 ----------------
 
 
+def _list_out(s: EntitySuggestion) -> dict:
+    """收件箱列表序列化：new_prompt 正文超长时截断（480 字 + 标记），全量走详情端点。
+    审核执行读的是库里存的完整 payload，这里只裁剪展示，不影响批准结果。"""
+    out = suggestion_out(s)
+    if s.kind == "new_prompt":
+        from .prompt_library_service import content_excerpt
+
+        content = out["payload"].get("content")
+        if isinstance(content, str):
+            excerpt, truncated = content_excerpt(content)
+            if truncated:
+                out["payload"] = {**out["payload"], "content": excerpt, "content_truncated": True}
+    return out
+
+
 def suggestion_out(s: EntitySuggestion) -> dict:
     out = {
         "id": s.id,
@@ -285,7 +300,7 @@ def list_suggestions(
     if status == "pending" and min_confidence is None:
         q = q.filter(EntitySuggestion.confidence >= floor)
     rows = q.order_by(EntitySuggestion.confidence.desc().nullslast(), EntitySuggestion.id.desc()).limit(200).all()
-    return [suggestion_out(s) for s in rows]
+    return [_list_out(s) for s in rows]
 
 
 def counts_by_kind(db: Session) -> dict[str, int]:

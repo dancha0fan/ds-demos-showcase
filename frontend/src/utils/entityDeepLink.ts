@@ -98,7 +98,8 @@ export function promptSuggestionSource(s: SuggestionItem): string | null {
   if (typeof raw !== 'string' || !raw.trim()) return null
   try {
     const url = new URL(raw.trim())
-    return (url.protocol === 'http:' || url.protocol === 'https:') && url.hostname ? url.href : null
+    // 新投稿后端已拒绝凭据；这里挡历史/异常 payload 把 user:pass 渲染成可点击链接
+    return (url.protocol === 'http:' || url.protocol === 'https:') && url.hostname && !url.username && !url.password ? url.href : null
   } catch {
     return null
   }

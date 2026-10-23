@@ -5,7 +5,7 @@ import logging
 import mimetypes
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -32,16 +32,12 @@ logging.basicConfig(level=logging.INFO)
 # slim 镜像的 mime 库不认识 .webp：不注册的话 /media 封面会以 application/octet-stream 下发
 mimetypes.add_type("image/webp", ".webp")
 
-def _json_dt(dt: datetime) -> str:
-    """naive UTC 统一补 Z，避免前端按本地时间解析提前 8 小时"""
-    if dt.tzinfo is None:
-        return dt.isoformat() + 'Z'
-    return dt.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
-
 # 发布版本：与 frontend/package.json 的 version 同步维护（前后端各一份声明，改版本必须一起改）。
 APP_VERSION = "0.2.0-alpha"
 
-app = FastAPI(title="DS 民间科研成果展示 API", version=APP_VERSION, json_encoders={datetime: _json_dt})
+# naive UTC 统一补 Z 的口径由各响应模型/服务自行保证（pydantic v2 原生输出 Z）；
+# 旧版 FastAPI 的 json_encoders 在 pydantic v2 下从未实际生效，0.161 起参数被移除。
+app = FastAPI(title="DS 民间科研成果展示 API", version=APP_VERSION)
 
 settings.media_path.mkdir(parents=True, exist_ok=True)
 
@@ -624,11 +620,25 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_demo_columns()
     # 旧库可能尚未执行 v2 全模型迁移；这里只补缺失的提示词关联，不动其他实体。
-    from .services.prompt_library_service import backfill_missing_prompt_links
+    # 版本标记（settings 主键）让稳态启动零扫描：完整回填过一次即不再跑；
+    # 无标记的旧库照常执行，多进程并发首启两边都跑也幂等。FTS5 可用时同步建搜索索引。
+    from .services.prompt_library_service import (
+        backfill_missing_prompt_links_once,
+        ensure_prompt_search_index,
+        mark_backfill_done,
+        sync_prompt_search_index,
+    )
 
     with SessionLocal() as prompt_db:
-        backfill_missing_prompt_links(prompt_db)
+        index_created = ensure_prompt_search_index(prompt_db)
+        linked = backfill_missing_prompt_links_once(prompt_db)
+        if index_created:
+            # 仅首次建索引表时首灌存量正文；此后靠逐条同步，稳态启动零扫描
+            sync_prompt_search_index(prompt_db)
         prompt_db.commit()
+    mark_backfill_done()
+    if linked:
+        logger.info("启动回填：本次补关联 %s 件旧作品的 prompt_id", linked)
     _ensure_tag_columns()
     _ensure_tag_key_columns()
     _ensure_announcement_columns()

@@ -1553,6 +1553,10 @@ export const en = {
       promptContent: 'Full prompt text',
       promptSource: 'Source URL',
       promptOpenHint: 'After approval, open the prompt to view results using the same text.',
+      // 列表口截断的 new_prompt 正文：点按钮才拉详情全量（PR #17 review 按需加载）
+      promptFull: 'View full text',
+      promptFullLoading: 'Loading…',
+      promptFullFailed: 'Failed to load full text',
       openPrompt: 'Open prompt',
       promptBatchNote: 'Approved prompts become public. Check the full text and source first.',
       effectMerge: 'On approve, references move and the source is retired (auditable)',

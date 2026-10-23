@@ -96,6 +96,11 @@ describe('entityDeepLink', () => {
     },
   )
 
+  it('来源拒绝内嵌账号密码（历史/异常 payload 防御）', () => {
+    expect(promptSuggestionSource(item({ kind: 'new_prompt', payload: { source_url: 'https://user:pass@example.org/prompt' } }))).toBeNull()
+    expect(promptSuggestionSource(item({ kind: 'new_prompt', payload: { source_url: 'http://user@example.org/prompt' } }))).toBeNull()
+  })
+
   it('tagsForWrite 丢掉系统保留键', () => {
     expect(tagsForWrite([
       { key: 'model', value: 'dsv4-flash' },

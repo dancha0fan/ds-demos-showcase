@@ -2,7 +2,7 @@
 defineOptions({ name: 'PromptsView' })
 import { onMounted, ref } from 'vue'
 import { api } from '../api'
-import type { PromptSummary } from '../api/types'
+import type { PromptListItem } from '../api/types'
 import { t } from '../i18n'
 import { isImeComposing } from '../utils/ime'
 import { useListPage } from '../composables/useListPage'
@@ -18,7 +18,7 @@ const sort = ref<'newest' | 'most_tested'>('newest')
 const results = ref<'all' | 'tested' | 'untested'>('all')
 // Applied text is separate from the draft: changing pages keeps the same search.
 const applied = ref({ q: '', category: '' })
-const { items, total, page, pageSize, loading, error, load, apply } = useListPage<PromptSummary>(
+const { items, total, page, pageSize, loading, error, load, apply } = useListPage<PromptListItem>(
   ({ page, page_size }) => api.listPrompts({
     q: applied.value.q || undefined,
     category: applied.value.category || undefined,

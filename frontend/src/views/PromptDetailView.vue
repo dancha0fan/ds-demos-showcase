@@ -28,7 +28,8 @@ let demosGeneration = 0
 const sourceUrl = computed(() => {
   try {
     const url = new URL(prompt.value?.source_url || '')
-    return ['http:', 'https:'].includes(url.protocol) ? url.href : null
+    // 新投稿后端已拒绝凭据；这里挡历史/异常数据把 user:pass 渲染成可点击链接
+    return ['http:', 'https:'].includes(url.protocol) && url.hostname && !url.username && !url.password ? url.href : null
   } catch { return null }
 })
 

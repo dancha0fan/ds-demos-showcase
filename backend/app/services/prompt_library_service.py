@@ -4,13 +4,18 @@ import hashlib
 from urllib.parse import urlsplit
 
 from fastapi import HTTPException
-from sqlalchemy import and_, case, func, or_, select, update
+from sqlalchemy import and_, case, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased
 
-from ..models import Demo, DemoModel, DemoTag, EntitySuggestion, Model, Prompt, PromptLibraryEntry, Tag, User
+from ..models import Demo, DemoModel, DemoTag, EntitySuggestion, Model, Prompt, PromptLibraryEntry, Setting, Tag, User
 from ..serializers import preload_demo_relations, serialize_demo
 from .scope import VALID_SCOPES, scope_contains_filter
+
+# 列表/收件箱摘要统一截断长度：卡片预览 480 字即够，全文按 id 按需取。
+PROMPT_EXCERPT_LEN = 480
+# 回填版本标记：完整跑过一次即打标，稳态启动不再扫描；手动重跑仍走 backfill_missing_prompt_links。
+BACKFILL_MARK_KEY = "prompt_backfill_links_done"
 
 
 def normalize_content(content: str) -> str:
@@ -20,6 +25,99 @@ def normalize_content(content: str) -> str:
 
 def content_hash(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def content_excerpt(content: str) -> tuple[str, bool]:
+    """列表/收件箱摘要：480 字截断；全文一律按 id 单取。"""
+    if len(content) <= PROMPT_EXCERPT_LEN:
+        return content, False
+    return content[:PROMPT_EXCERPT_LEN], True
+
+
+# ---------------- FTS5 trigram 搜索预筛（仅 SQLite；语义由 icontains 精确校验兜底） ----------------
+#
+# 正文 icontains 在 SQLite 上是 lower()||LIKE 全表扫描。trigram 虚拟表把 ≥3 字符查询的
+# 候选集先筛出来，再在候选上跑原 icontains：trigram 的大小写折叠可能比 SQL lower()（只折
+# ASCII）更宽，候选只会偏大不会漏，精确校验保证最终口径与全表 LIKE 逐字节一致。
+# <3 字符（常见中文二字词）、非 SQLite、无 FTS5 编译项、虚拟表缺失——全部回退原 LIKE 路径。
+# Prompt 正文不可变且无删除接口，索引只需 INSERT 同步，无需更新/删除路径。
+
+
+def ensure_prompt_search_index(db: Session) -> bool:
+    """启动时创建 trigram 虚拟表；返回是否**本次新建**（新建才需要首灌存量正文）。
+    不可用时静默降级（查询路径按表是否存在自行回退）。"""
+    connection = db.connection()
+    if connection.dialect.name != "sqlite":
+        return False
+    if not connection.exec_driver_sql("SELECT sqlite_compileoption_used('ENABLE_FTS5')").scalar():
+        return False
+    if _search_index_ready(db):
+        return False
+    connection.exec_driver_sql(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS prompt_fts USING fts5(content, tokenize='trigram')")
+    return True
+
+
+def _search_index_ready(db: Session) -> bool:
+    connection = db.connection()
+    if connection.dialect.name != "sqlite":
+        return False
+    return connection.exec_driver_sql(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='prompt_fts'").first() is not None
+
+
+def _fts_candidate_ids(db: Session, q: str) -> list[int] | None:
+    """正文候选 id 预筛；None 表示本查询不走 FTS（调用方回退全表 icontains）。"""
+    if len(q) < 3 or not _search_index_ready(db):
+        return None
+    phrase = '"' + q.replace('"', '""') + '"'
+    rows = db.execute(text("SELECT rowid FROM prompt_fts WHERE prompt_fts MATCH :m"), {"m": phrase}).all()
+    ids = [r[0] for r in rows]
+    if len(ids) > 10_000:
+        # 命中面过大时预筛已无收益，退回全表 LIKE，同时避开 in_ 绑定参数数上限
+        return None
+    return ids
+
+
+def _search_index_add(db: Session, prompt_id: int, content: str) -> None:
+    """与正文同事务写入索引：失败即整体失败，不会出现正文在而索引缺的漂移。
+    OR REPLACE：生产无删除场景等于幂等；测试直删 Prompt 后 id 复用时吸收旧行。"""
+    if not _search_index_ready(db):
+        return
+    db.execute(text("INSERT OR REPLACE INTO prompt_fts(rowid, content) VALUES (:i, :c)"),
+               {"i": prompt_id, "c": content})
+
+
+def sync_prompt_search_index(db: Session) -> int:
+    """把缺位正文补进索引（启动建表后首灌、回填后兜底）；幂等，非 sqlite/无表 no-op。"""
+    if not _search_index_ready(db):
+        return 0
+    result = db.execute(text(
+        "INSERT INTO prompt_fts(rowid, content) "
+        "SELECT id, content FROM prompts WHERE id NOT IN (SELECT rowid FROM prompt_fts)"))
+    return result.rowcount
+
+
+def backfill_missing_prompt_links_once(db: Session) -> int:
+    """带版本标记的启动回填：标记存在即跳过（稳态零扫描）；标记只在此函数读，写入归调用方。"""
+    if db.get(Setting, BACKFILL_MARK_KEY) is not None:
+        return 0
+    return backfill_missing_prompt_links(db)
+
+
+def mark_backfill_done() -> None:
+    """回填成功提交后打标。独立短事务 + 冲突容忍：并发首启时另一进程已打标（主键冲突）
+    或 SQLite 写锁未抢到（busy）都够用——标记只是优化，回填本身幂等，下次启动兜底。"""
+    from sqlalchemy.exc import IntegrityError, OperationalError
+
+    from ..database import SessionLocal
+
+    try:
+        with SessionLocal() as db:
+            db.add(Setting(key=BACKFILL_MARK_KEY, value="1"))
+            db.commit()
+    except (IntegrityError, OperationalError):
+        pass
 
 
 def _savepoint(db: Session):
@@ -64,6 +162,7 @@ def get_or_create_prompt(db: Session, content: str) -> Prompt:
         with _savepoint(db):
             db.add(row)
             db.flush()
+            _search_index_add(db, row.id, content)
     except IntegrityError:
         existing = db.query(Prompt).filter(Prompt.content_hash == digest).first()
         if existing is None:
@@ -130,6 +229,7 @@ def backfill_missing_prompt_links(db: Session, batch_size: int = 200) -> int:
                                 .values(prompt_id=prompt.id).execution_options(synchronize_session=False))
             linked += result.rowcount
         db.flush()
+    sync_prompt_search_index(db)
     if linked:
         # 批量修复只失效一次，避免每件作品都重置聚类状态。
         from . import cluster_service
@@ -204,8 +304,16 @@ def list_prompts(db: Session, *, scope: str, q: str | None = None, category: str
     query = db.query(summary)
     if q and q.strip():
         value = q.strip()
-        query = query.filter(or_(summary.c.title.icontains(value, autoescape=True),
-                                 summary.c.content.icontains(value, autoescape=True)))
+        conditions = [summary.c.title.icontains(value, autoescape=True)]
+        fts_ids = _fts_candidate_ids(db, value)
+        if fts_ids is None:
+            # 回退路径：短查询/非 SQLite/无索引表，维持原全表 icontains 口径
+            conditions.append(summary.c.content.icontains(value, autoescape=True))
+        elif fts_ids:
+            # 候选集内再过一次 icontains：口径与全表 LIKE 一致，只是少扫了绝大多数行
+            conditions.append(and_(summary.c.id.in_(fts_ids),
+                                   summary.c.content.icontains(value, autoescape=True)))
+        query = query.filter(or_(*conditions))
     if category and category.strip():
         query = query.filter(summary.c.category == category.strip())
     if has_results is not None:
@@ -214,12 +322,22 @@ def list_prompts(db: Session, *, scope: str, q: str | None = None, category: str
     if sort == "most_tested":
         query = query.order_by(summary.c.demos_total.desc())
     query = query.order_by(summary.c.created_at.desc(), summary.c.id.desc())
-    return [dict(r._mapping) for r in query.offset((page - 1) * page_size).limit(page_size).all()], total
+    items = []
+    for r in query.offset((page - 1) * page_size).limit(page_size).all():
+        row = dict(r._mapping)
+        content = row.pop("content")
+        row["content_excerpt"], row["content_truncated"] = content_excerpt(content)
+        items.append(row)
+    return items, total
 
 
 def get_prompt(db: Session, prompt_id: int, *, scope: str) -> dict | None:
     row = _summary_query(db, scope).filter(Prompt.id == prompt_id).first()
-    return dict(row._mapping) if row is not None else None
+    if row is None:
+        return None
+    summary = dict(row._mapping)
+    summary["content_excerpt"], summary["content_truncated"] = content_excerpt(summary["content"])
+    return summary
 
 
 def list_prompt_demos(db: Session, prompt_id: int, *, scope: str, page: int = 1,

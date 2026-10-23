@@ -85,6 +85,31 @@ function promptContent(s: SuggestionItem): string {
   return typeof s.payload.content === 'string' ? s.payload.content : ''
 }
 
+// ---- new_prompt 展开全文：列表口 payload.content 超 480 字已被后端截断（content_truncated），
+// 「查看全文」时才调详情接口取全量；已取条目按 id 缓存，避免重复请求（带宽与 DOM 双省） ----
+const fullContents = ref(new Map<number, string>())
+const fullLoading = ref<Record<number, boolean>>({})
+
+/** <pre> 显示的正文：优先已取回的全量，否则用列表里的（可能被截断的）payload.content */
+function promptText(s: SuggestionItem): string {
+  return fullContents.value.get(s.id) ?? promptContent(s)
+}
+
+async function loadFullPrompt(s: SuggestionItem) {
+  if (fullContents.value.has(s.id) || fullLoading.value[s.id]) return
+  fullLoading.value[s.id] = true
+  try {
+    const full = await api.getSuggestion(s.id)
+    // 仅缓存真正的字符串全文；payload 异常时不写缓存，保持「查看全文」可重试
+    if (typeof full.payload.content === 'string') fullContents.value.set(s.id, full.payload.content)
+    else ui.toast(t('admin.inbox.promptFullFailed', '全文读取失败'), 'error')
+  } catch (e) {
+    ui.toast((e as Error).message, 'error')
+  } finally {
+    fullLoading.value[s.id] = false
+  }
+}
+
 async function load() {
   loading.value = true
   error.value = ''
@@ -321,9 +346,19 @@ onMounted(() => {
             <span class="muted mono inbox-time">{{ parseDate(s.created_at).toLocaleString('zh-CN') }}</span>
           </div>
           <div class="inbox-brief">{{ brief(s) }}</div>
-          <details v-if="s.kind === 'new_prompt'" class="inbox-prompt-details" :open="s.status === 'pending'">
+          <!-- 默认收起：列表正文是摘要（超 480 字后端截断），审核员展开按需看/取全量 -->
+          <details v-if="s.kind === 'new_prompt'" class="inbox-prompt-details">
             <summary>{{ t('admin.inbox.promptContent', '提示词全文') }}</summary>
-            <pre class="inbox-prompt-text mono">{{ promptContent(s) }}</pre>
+            <pre class="inbox-prompt-text mono">{{ promptText(s) }}</pre>
+            <button
+              v-if="s.payload.content_truncated && !fullContents.has(s.id)"
+              class="btn btn-sm btn-outline"
+              type="button"
+              :disabled="fullLoading[s.id]"
+              @click="loadFullPrompt(s)"
+            >
+              {{ fullLoading[s.id] ? t('admin.inbox.promptFullLoading', '加载中…') : t('admin.inbox.promptFull', '查看全文') }}
+            </button>
             <p v-if="s.payload.source_url" class="inbox-prompt-source">
               <b>{{ t('admin.inbox.promptSource', '来源链接') }}：</b>
               <a v-if="promptSuggestionSource(s)" :href="promptSuggestionSource(s)!" target="_blank" rel="noopener noreferrer">{{ s.payload.source_url }}</a>
@@ -357,9 +392,19 @@ onMounted(() => {
           <span class="muted mono inbox-time">{{ parseDate(s.created_at).toLocaleString('zh-CN') }}</span>
         </div>
         <div class="inbox-brief">{{ brief(s) }}</div>
-        <details v-if="s.kind === 'new_prompt'" class="inbox-prompt-details" :open="s.status === 'pending'">
+        <!-- 默认收起：列表正文是摘要（超 480 字后端截断），审核员展开按需看/取全量 -->
+        <details v-if="s.kind === 'new_prompt'" class="inbox-prompt-details">
           <summary>{{ t('admin.inbox.promptContent', '提示词全文') }}</summary>
-          <pre class="inbox-prompt-text mono">{{ promptContent(s) }}</pre>
+          <pre class="inbox-prompt-text mono">{{ promptText(s) }}</pre>
+          <button
+            v-if="s.payload.content_truncated && !fullContents.has(s.id)"
+            class="btn btn-sm btn-outline"
+            type="button"
+            :disabled="fullLoading[s.id]"
+            @click="loadFullPrompt(s)"
+          >
+            {{ fullLoading[s.id] ? t('admin.inbox.promptFullLoading', '加载中…') : t('admin.inbox.promptFull', '查看全文') }}
+          </button>
           <p v-if="s.payload.source_url" class="inbox-prompt-source">
             <b>{{ t('admin.inbox.promptSource', '来源链接') }}：</b>
             <a v-if="promptSuggestionSource(s)" :href="promptSuggestionSource(s)!" target="_blank" rel="noopener noreferrer">{{ s.payload.source_url }}</a>

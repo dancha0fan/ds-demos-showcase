@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
 from app.main import app
-from app.models import AuditLog, Demo, DemoModel, EntitySuggestion, Model, Prompt
+from app.models import AuditLog, Demo, DemoModel, EntitySuggestion, Model, Prompt, Setting
 
 
 @pytest.fixture()
@@ -39,13 +39,23 @@ def key(client):
             db.query(entry).filter(entry.prompt_id.in_(ids)).delete(synchronize_session=False)
         if ids:
             db.query(Prompt).filter(Prompt.id.in_(ids)).delete(synchronize_session=False)
+        # FTS 索引行一并清理（表不存在时静默跳过），避免孤儿 rowid 影响后续用例
+        from sqlalchemy import text as _text
+
+        from app.services.prompt_library_service import _search_index_ready
+
+        if ids and _search_index_ready(db):
+            id_list = ",".join(str(int(i)) for i in ids)  # 数据库主键整型，内联安全
+            db.execute(_text(f"DELETE FROM prompt_fts WHERE rowid IN ({id_list})"))
         db.commit()
 
 
 def seed_prompt(content):
+    from app.services.prompt_library_service import get_or_create_prompt
+
+    # 走服务层创建：与线上一致地同步 FTS 搜索索引（直插 Prompt 会漏索引）。
     with SessionLocal() as db:
-        row = Prompt(content=content, content_hash=hashlib.sha256(content.encode()).hexdigest())
-        db.add(row)
+        row = get_or_create_prompt(db, content)
         db.commit()
         return row.id
 
@@ -107,7 +117,10 @@ def test_submission_review_and_zero_result_publication(client, auth_headers, adm
     assert item["category"] == "interactive"
     assert item["source_url"] == "https://example.com/prompt"
     assert item["demos_total"] == item["models_total"] == 0
-    assert client.get(f"/api/v1/prompts/{item['id']}").json() == item
+    detail = client.get(f"/api/v1/prompts/{item['id']}").json()
+    assert detail["content"] == key + "\n做一个交互作品。"
+    # 列表项只带摘要；详情多出全文 content，其余字段逐一相等
+    assert {k: v for k, v in detail.items() if k != "content"} == item
     results = client.get(f"/api/v1/prompts/{item['id']}/demos").json()
     assert results["total"] == 0 and results["items"] == []
     assert client.get("/api/v1/prompts", params={"q": key, "has_results": False}).json()["total"] == 1
@@ -201,7 +214,7 @@ def test_exact_body_normalization_preserves_case_and_internal_whitespace(client,
         approve(client, admin_headers, sid)
     rows = client.get("/api/v1/prompts", params={"q": key}).json()
     assert rows["total"] == 3
-    assert base in {r["content"] for r in rows["items"]}
+    assert base in {r["content_excerpt"] for r in rows["items"]}
 
 
 @pytest.mark.parametrize("extra", [
@@ -284,16 +297,23 @@ def test_backfill_missing_links_is_exact_batched_and_repeatable(client, key):
 
 
 def test_startup_backfills_legacy_rows(client, key):
+    from app.services.prompt_library_service import BACKFILL_MARK_KEY
+
     with SessionLocal() as db:
         d = Demo(slug=key + "-old", title=key, prompt=key + " old nonempty", status="approved")
         db.add(d)
         db.commit()
         did = d.id
+        # 模拟从未跑过回填的旧库：删掉版本标记，重启才会执行回填
+        db.query(Setting).filter(Setting.key == BACKFILL_MARK_KEY).delete()
+        db.commit()
     with TestClient(app) as restarted:
         rows = restarted.get("/api/v1/prompts", params={"q": key}).json()
         assert rows["total"] == 1
     with SessionLocal() as db:
         assert db.get(Demo, did).prompt_id == rows["items"][0]["id"]
+        # 回填完成后标记重新打上：稳态启动不再扫描
+        assert db.get(Setting, BACKFILL_MARK_KEY) is not None
 
 
 def test_publication_participates_in_callers_transaction(client, key):
@@ -416,3 +436,129 @@ def test_old_schema_can_create_library_and_backfill(tmp_path, monkeypatch):
         assert "prompt_library_entries" in inspect(legacy_engine).get_table_names()
     finally:
         legacy_engine.dispose()
+
+
+def test_list_returns_excerpt_only_and_detail_returns_full(client, key):
+    long_body = key + " " + "z" * 600
+    pid = seed_prompt(long_body)
+    short_pid = seed_prompt(key + " short body")
+    seed_demo(key, pid, n=0)
+    seed_demo(key, short_pid, n=1)
+    rows = client.get("/api/v1/prompts", params={"q": key, "page_size": 10}).json()
+    by_id = {r["id"]: r for r in rows["items"]}
+    assert "content" not in by_id[pid]
+    assert by_id[pid]["content_truncated"] is True
+    assert len(by_id[pid]["content_excerpt"]) == 480 and by_id[pid]["content_excerpt"].endswith("z")
+    assert by_id[short_pid]["content_truncated"] is False
+    assert by_id[short_pid]["content_excerpt"] == key + " short body"
+    full = client.get(f"/api/v1/prompts/{pid}").json()
+    assert full["content"] == long_body and full["content_truncated"] is True
+
+
+def test_admin_inbox_truncates_payload_and_detail_returns_full(client, auth_headers, admin_headers, key):
+    headers, _ = auth_headers()
+    body = key + " " + "y" * 600
+    sid = submit(client, headers, key, content=body).json()["suggestion_id"]
+
+    items = client.get("/api/v1/admin/suggestions", params={"kind": "new_prompt", "status": "all"},
+                       headers=admin_headers).json()["items"]
+    mine = next(i for i in items if i["id"] == sid)
+    assert mine["payload"]["content_truncated"] is True
+    assert len(mine["payload"]["content"]) == 480
+
+    detail = client.get(f"/api/v1/admin/suggestions/{sid}", headers=admin_headers).json()
+    assert detail["payload"]["content"] == body
+    assert "content_truncated" not in detail["payload"]
+    # 详情同样在 admin 门内：匿名 403
+    assert client.get(f"/api/v1/admin/suggestions/{sid}").status_code == 403
+
+
+def test_demo_upload_prompt_is_searchable(client, key):
+    """上传/编辑路径（set_demo_prompt）创建的正文必须进 FTS 索引——稳态搜索不漏结果。
+
+    回归点：该路径曾直插 Prompt 绕过索引同步，上传的作品在 ≥3 字符搜索下不可见。
+    """
+    from app.services.model_service import set_demo_prompt
+
+    body = key + " 量子纠缠独有正文串"
+    with SessionLocal() as db:
+        d = Demo(slug=key + "-upload", title=key, prompt=body, status="approved", sites="deep")
+        db.add(d)
+        db.flush()
+        set_demo_prompt(db, d)
+        db.commit()
+
+    rows = client.get("/api/v1/prompts", params={"q": "量子纠缠独有正文串"}).json()
+    assert rows["total"] == 1
+    assert rows["items"][0]["title"] == key
+    assert rows["items"][0]["content_excerpt"].startswith(key)
+
+
+def test_backfill_mark_skips_steady_state(client, key):
+    from app.services.prompt_library_service import (
+        BACKFILL_MARK_KEY,
+        backfill_missing_prompt_links,
+        backfill_missing_prompt_links_once,
+    )
+
+    with SessionLocal() as db:
+        d = Demo(slug=key + "-mark", title=key, prompt=key + " after mark", status="approved")
+        db.add(d)
+        db.commit()
+        did = d.id
+        # 首轮启动已打标：once 路径跳过（稳态零扫描），直跑函数仍可用于手动修复
+        assert db.get(Setting, BACKFILL_MARK_KEY) is not None
+        assert backfill_missing_prompt_links_once(db) == 0
+        db.commit()
+        assert db.get(Demo, did).prompt_id is None
+        assert backfill_missing_prompt_links(db) >= 1
+        db.commit()
+        assert db.get(Demo, did).prompt_id is not None
+
+
+def test_search_fts_matches_like_semantics(client, key):
+    from sqlalchemy import text as sql_text
+
+    from app.services import prompt_library_service as svc
+
+    bodies = [
+        key + " Alpha Case",
+        (key + " alpha case").upper(),
+        key + " 番茄时钟计划",
+        key + " 番茄炒蛋",
+        key + ' quote"inside',
+        key + " MiniTest",
+    ]
+    alpha_pids = set()
+    for n, body in enumerate(bodies):
+        pid = seed_prompt(body)
+        if "alpha" in body.lower():
+            alpha_pids.add(pid)
+        seed_demo(key, pid, n=n)
+
+    def result_ids(q):
+        rows = client.get("/api/v1/prompts", params={"q": q, "page_size": 100}).json()["items"]
+        return sorted(r["id"] for r in rows)
+
+    def like_only_ids(q):
+        with SessionLocal() as db:
+            original = svc._fts_candidate_ids
+            svc._fts_candidate_ids = lambda session, value: None
+            try:
+                items, _ = svc.list_prompts(db, scope="deep", q=q, page_size=100)
+            finally:
+                svc._fts_candidate_ids = original
+            return sorted(r["id"] for r in items)
+
+    with SessionLocal() as db:
+        assert svc._search_index_ready(db) is True
+        # 常见中文二字词低于 trigram 下限：固定走 LIKE 回退
+        assert svc._fts_candidate_ids(db, "番茄") is None
+        plan = " ".join(str(row) for row in db.execute(
+            sql_text("EXPLAIN QUERY PLAN SELECT rowid FROM prompt_fts WHERE prompt_fts MATCH :m"),
+            {"m": '"alpha"'}).all())
+        assert "prompt_fts" in plan
+
+    for q in ["alpha", "ALPHA", "Case", "番茄时钟", "番茄炒蛋", 'quote"inside', key + " MiniTest", "没有匹配词组"]:
+        assert result_ids(q) == like_only_ids(q), q
+    assert alpha_pids <= set(result_ids("alpha"))  # 大小写两条变体都命中，FTS 与 LIKE 口径一致

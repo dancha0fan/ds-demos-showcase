@@ -759,10 +759,13 @@ class TaskListOut(BaseModel):
 
 
 # ---------- Prompt library ----------
-class PromptSummaryOut(BaseModel):
+class PromptListItemOut(BaseModel):
+    """列表项：正文只给 480 字摘要，全文按 id 单取（最坏一页从 ~2MB 降到 ~100KB）。"""
+
     id: int
     title: str
-    content: str
+    content_excerpt: str
+    content_truncated: bool
     category: str | None = None
     source_url: str | None = None
     source: Literal["contributed", "demo"]
@@ -771,8 +774,14 @@ class PromptSummaryOut(BaseModel):
     models_total: int
 
 
+class PromptSummaryOut(PromptListItemOut):
+    """详情：摘要字段 + 完整正文。"""
+
+    content: str
+
+
 class PromptListOut(BaseModel):
-    items: list[PromptSummaryOut]
+    items: list[PromptListItemOut]
     total: int
     page: int
     page_size: int

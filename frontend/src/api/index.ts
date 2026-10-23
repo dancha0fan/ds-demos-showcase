@@ -55,6 +55,7 @@ import type {
   TaskDetail,
   TaskProposalIn,
   TaskProposalOut,
+  PromptListItem,
   PromptSummary,
   PromptListParams,
   PromptProposalIn,
@@ -94,7 +95,8 @@ const useMock = (import.meta.env.VITE_USE_MOCK ?? 'true') !== 'false'
 export const isMock = useMock
 
 const realApi = {
-  async listPrompts(params: PromptListParams = {}): Promise<Paginated<PromptSummary>> {
+  // 列表只回正文摘要（content_excerpt ≤480 字），全量走 getPrompt —— 列表页不再拖全量正文
+  async listPrompts(params: PromptListParams = {}): Promise<Paginated<PromptListItem>> {
     const { data } = await http.get('/prompts', { params })
     return data
   },
@@ -661,6 +663,11 @@ const realApi = {
   },
   async reviewSuggestion(id: number, action: 'approve' | 'reject'): Promise<SuggestionItem> {
     const { data } = await http.post(`/admin/suggestions/${id}/review`, { action })
+    return data
+  },
+  // 详情口：列表里 new_prompt 的 payload.content 超 480 字会被截断，审核员点「查看全文」从这里取全量
+  async getSuggestion(id: number): Promise<SuggestionItem> {
+    const { data } = await http.get(`/admin/suggestions/${id}`)
     return data
   },
   async getAttributionPending(): Promise<AttributionPending> {

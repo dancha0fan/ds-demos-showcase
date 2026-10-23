@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type { PromptSummary } from '../src/api/types'
 import { usePromptLibraryUpload } from '../src/composables/usePromptLibraryUpload'
 
-const entry = (id: number): PromptSummary => ({ id, title: `题目 ${id}`, content: `原文 ${id}`, category: null,
-  source_url: null, source: 'contributed', created_at: '2026-10-23T00:00:00Z', demos_total: 0, models_total: 0 })
+const entry = (id: number): PromptSummary => ({ id, title: `题目 ${id}`, content: `原文 ${id}`, content_excerpt: `原文 ${id}`,
+  content_truncated: false, category: null, source_url: null, source: 'contributed', created_at: '2026-10-23T00:00:00Z', demos_total: 0, models_total: 0 })
 
 function setup(hasDraft = false, editing = false) {
   const id = ref<unknown>('1'), prompt = ref(''), title = ref(''), isEditing = ref(editing)
