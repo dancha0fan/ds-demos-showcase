@@ -1,6 +1,5 @@
 """提示词库：公开可见性、独立投稿审核、精确正文与旧库回填。"""
 
-import hashlib
 from datetime import datetime, timedelta
 from uuid import uuid4
 

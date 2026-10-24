@@ -8,6 +8,8 @@ defineProps<{ prompt: PromptListItem }>()
 
 // 复制时才拉全文：列表项只带 480 字摘要（按需加载契约），点击复制按需取详情。
 // 缓存 Promise：已取正文复用、在途请求共享（连点只发一次）；失败不缓存，按钮可重试。
+// 上限 20 条：缓存只在本次会话内复用，避免翻遍列表后把所有全文永久留在内存。
+const FULL_TEXT_CACHE_MAX = 20
 const fullTextCache = new Map<number, Promise<string>>()
 function copyText(id: number) {
   let pending = fullTextCache.get(id)
@@ -15,6 +17,11 @@ function copyText(id: number) {
     pending = api.getPrompt(id).then((r) => r.content)
     pending.catch(() => fullTextCache.delete(id))
     fullTextCache.set(id, pending)
+    while (fullTextCache.size > FULL_TEXT_CACHE_MAX) {
+      const oldest = fullTextCache.keys().next().value
+      if (oldest === undefined) break
+      fullTextCache.delete(oldest)
+    }
   }
   return pending
 }
